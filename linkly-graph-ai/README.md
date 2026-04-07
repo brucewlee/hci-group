@@ -66,35 +66,4 @@ Open http://localhost:5173 in your browser.
 4. The AI returns matching tags from your existing taxonomy
 5. Accept suggestions and add the paper to your graph
 
----
 
-## AI Attribution
-
-All code in this repository was generated with assistance from **Claude** (Anthropic). The entire `src/App.jsx` component, project scaffolding, and this README were produced through iterative conversation with Claude Opus.
-
-Specifically:
-- Force-directed graph layout algorithm
-- SVG rendering with hover/drag interactions
-- Edge creation via connector handles
-- Claude API integration for tag suggestion
-- ArXiv metadata auto-fetch via Semantic Scholar API
-- React state management and component structure
-- Bug fixes and iterative refinement
-
----
-
-## Project Structure
-```
-research-graph/
-├── index.html          # Entry point
-├── package.json        # Dependencies (React 18, Vite 5)
-├── vite.config.js      # Dev server with API proxy
-├── .env.example        # API key template
-├── .gitignore
-├── README.md
-└── src/
-    ├── main.jsx        # React mount
-    └── App.jsx         # All application code (~730 lines)
-```
-
-Make sure the repo is **public** for grading.
