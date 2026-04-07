@@ -1,6 +1,6 @@
 # Linkly — Implementation Prototypes
 
-Technical requirement demos for the Linkly HCI project. Each subfolder is a standalone React + Vite app with separate READMEs with instructions for
+Technical requirement demos for the Linkly HCI project. Each subfolder is a standalone React + Vite app with separate READMEs.
 
 ```
 linkly-graph-ai/       — Requirements 6 & 7  (AI tagging, interactive graph)
