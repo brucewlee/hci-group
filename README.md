@@ -64,11 +64,11 @@ All code in this repository was generated with assistance from AI.
 
 **`linkly-hello-world/`** — produced through iterative conversation with Codex:
 
-React multi-screen prototype with Hello World opening screen
-Style-guide screen with required colors, Lato font weights, and FontAwesome icons
-Native multi-page PDF rendering with react-pdf
-Text selection capture from rendered PDF into glossary entries
-Session-based glossary persistence with sessionStorage
-Drag-to-annotate PDF interactions with saved comments
-Persistent annotation storage with localStorage
-Margin annotation callouts connected to annotated PDF regions
+- React multi-screen prototype with Hello World opening screen
+- Style-guide screen with required colors, Lato font weights, and FontAwesome icons
+- Native multi-page PDF rendering with react-pdf
+- Text selection capture from rendered PDF into glossary entries
+- Session-based glossary persistence with sessionStorage
+- Drag-to-annotate PDF interactions with saved comments
+- Persistent annotation storage with localStorage
+- Margin annotation callouts connected to annotated PDF regions
