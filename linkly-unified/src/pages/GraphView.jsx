@@ -65,6 +65,9 @@ function runLayout(papers, iterations = 180) {
 }
 
 function EdgeGroup({ x1, y1, x2, y2, hl, dim, onDelete }) {
+  const midX = (x1 + x2) / 2;
+  const midY = (y1 + y2) / 2;
+
   return (
     <g style={{ opacity: dim ? 0.1 : 1, transition: 'opacity 0.15s' }}>
       <line
@@ -81,10 +84,11 @@ function EdgeGroup({ x1, y1, x2, y2, hl, dim, onDelete }) {
         style={{ cursor: 'pointer' }}
         onMouseUp={onDelete}
       >
-        <circle cx={(x1 + x2) / 2} cy={(y1 + y2) / 2} r={6} fill="none" stroke={hl ? LINK : '#ccc'} strokeWidth={1.5} />
+        <circle cx={midX} cy={midY} r={11} fill="transparent" stroke="none" />
+        <circle cx={midX} cy={midY} r={6} fill={BG} stroke={hl ? LINK : '#ccc'} strokeWidth={1.5} />
         <text
-          x={(x1 + x2) / 2}
-          y={(y1 + y2) / 2}
+          x={midX}
+          y={midY}
           textAnchor="middle"
           dominantBaseline="middle"
           fontSize="8"
@@ -113,6 +117,7 @@ export function GraphView({ papers, setPapers, tags = [] }) {
   const [laidOut, setLaidOut] = useState([]);
   const [hovered, setHovered] = useState(null);
   const [selected, setSelected] = useState(null);
+  const [tagDraft, setTagDraft] = useState('');
   const [dragId, setDragId] = useState(null);
   const [edgeDragFrom, setEdgeDragFrom] = useState(null);
   const [edgeDragMouse, setEdgeDragMouse] = useState(null);
@@ -122,6 +127,10 @@ export function GraphView({ papers, setPapers, tags = [] }) {
 
   const filteredPapers = filterTag ? papers.filter((p) => p.tags && p.tags.includes(filterTag)) : papers;
   const filteredIds = filteredPapers.map((p) => p.id).sort().join(',');
+  const filteredMetadataKey = filteredPapers
+    .map((p) => `${p.id}:${(p.tags || []).join('|')}:${(p.buildsOn || []).join('|')}:${p.title || ''}:${p.year || ''}`)
+    .sort()
+    .join('~');
 
   useEffect(() => {
     if (filteredIds === prevPaperIds.current) return;
@@ -133,6 +142,30 @@ export function GraphView({ papers, setPapers, tags = [] }) {
     setLaidOut(runLayout(filteredPapers));
     setSelected(null);
   }, [filteredIds, filteredPapers]);
+
+  useEffect(() => {
+    setLaidOut((prev) => {
+      const previousById = new Map(prev.map((paper) => [paper.id, paper]));
+      const hasMatchingNodeSet =
+        prev.length === filteredPapers.length &&
+        filteredPapers.every((paper) => previousById.has(paper.id));
+
+      if (!hasMatchingNodeSet) {
+        return prev;
+      }
+
+      return filteredPapers.map((paper) => {
+        const currentNode = previousById.get(paper.id);
+        return {
+          ...paper,
+          x: currentNode.x,
+          y: currentNode.y,
+          vx: currentNode.vx,
+          vy: currentNode.vy,
+        };
+      });
+    });
+  }, [filteredMetadataKey]);
 
   const tagColor = useMemo(() => {
     const m = {};
@@ -263,6 +296,51 @@ export function GraphView({ papers, setPapers, tags = [] }) {
   const selPaper = selected ? papers.find((p) => p.id === selected) : null;
   const hovPaper = hovered ? papers.find((p) => p.id === hovered) : null;
   const hovNode = hovered ? laidOut.find((n) => n.id === hovered) : null;
+  const selectedTagSet = new Set((selPaper?.tags || []).map((tag) => tag.toLowerCase()));
+  const availableTags = tags.filter((tag) => !selectedTagSet.has(tag.toLowerCase()));
+
+  useEffect(() => {
+    setTagDraft('');
+  }, [selected]);
+
+  const addTagToPaper = useCallback(
+    (paperId, tagValue = tagDraft) => {
+      const nextTag = tagValue.trim();
+      if (!nextTag) return;
+
+      setPapers((prev) =>
+        prev.map((paper) => {
+          if (paper.id !== paperId) return paper;
+
+          const existingTags = paper.tags || [];
+          const hasMatch = existingTags.some(
+            (tag) => tag.toLowerCase() === nextTag.toLowerCase(),
+          );
+
+          if (hasMatch) {
+            return paper;
+          }
+
+          return { ...paper, tags: [...existingTags, nextTag] };
+        }),
+      );
+      setTagDraft('');
+    },
+    [setPapers, tagDraft],
+  );
+
+  const removeTagFromPaper = useCallback(
+    (paperId, tagToRemove) => {
+      setPapers((prev) =>
+        prev.map((paper) =>
+          paper.id === paperId
+            ? { ...paper, tags: (paper.tags || []).filter((tag) => tag !== tagToRemove) }
+            : paper,
+        ),
+      );
+    },
+    [setPapers],
+  );
 
   return (
     <div className="page-wrapper">
@@ -596,12 +674,99 @@ export function GraphView({ papers, setPapers, tags = [] }) {
                 {selPaper.tags && selPaper.tags.length > 0 && (
                   <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: '8px' }}>
                     {selPaper.tags.map((t) => (
-                      <span key={t} className="tag" style={{ background: tagColor[t] || LINK }}>
-                        {t}
-                      </span>
+                      <button
+                        key={t}
+                        type="button"
+                        className="tag"
+                        onClick={() => removeTagFromPaper(selPaper.id, t)}
+                        title={`Remove tag "${t}"`}
+                        style={{
+                          background: tagColor[t] || LINK,
+                          border: 'none',
+                          cursor: 'pointer',
+                          fontFamily: 'inherit',
+                        }}
+                      >
+                        {t} ×
+                      </button>
                     ))}
                   </div>
                 )}
+                <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${BORDER}` }}>
+                  <p style={{ fontSize: '11px', fontWeight: '700', color: T2, marginBottom: '6px', textTransform: 'uppercase' }}>
+                    Tags
+                  </p>
+                  {(!selPaper.tags || selPaper.tags.length === 0) && (
+                    <p style={{ fontSize: '12px', color: T2, marginBottom: '8px' }}>
+                      No tags yet. Add one below.
+                    </p>
+                  )}
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input
+                      type="text"
+                      className="form-input"
+                      list="graph-tag-options"
+                      value={tagDraft}
+                      onChange={(e) => setTagDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          addTagToPaper(selPaper.id);
+                        }
+                      }}
+                      placeholder="Add a tag"
+                    />
+                    <datalist id="graph-tag-options">
+                      {availableTags.map((tag) => (
+                        <option key={tag} value={tag} />
+                      ))}
+                    </datalist>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-small"
+                      onClick={() => addTagToPaper(selPaper.id)}
+                      disabled={!tagDraft.trim()}
+                    >
+                      Add
+                    </button>
+                  </div>
+                  {availableTags.length > 0 && (
+                    <div style={{ marginTop: '10px' }}>
+                      <p
+                        style={{
+                          fontSize: '11px',
+                          fontWeight: '700',
+                          color: T2,
+                          marginBottom: '6px',
+                          textTransform: 'uppercase',
+                        }}
+                      >
+                        Existing tags
+                      </p>
+                      <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                        {availableTags.map((tag) => (
+                          <button
+                            key={tag}
+                            type="button"
+                            className="tag"
+                            onClick={() => addTagToPaper(selPaper.id, tag)}
+                            style={{
+                              background: tagColor[tag] || LINK,
+                              border: 'none',
+                              cursor: 'pointer',
+                              fontFamily: 'inherit',
+                            }}
+                          >
+                            + {tag}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <p style={{ fontSize: '11px', color: T3, marginTop: '6px', marginBottom: 0 }}>
+                    Click an existing tag to remove it.
+                  </p>
+                </div>
                 {selPaper.note && (
                   <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${BORDER}` }}>
                     <p style={{ fontSize: '11px', fontWeight: '700', color: T2, marginBottom: '4px', textTransform: 'uppercase' }}>
