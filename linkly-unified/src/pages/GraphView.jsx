@@ -176,17 +176,36 @@ export function GraphView({ papers, setPapers, tags = [] }) {
   }, [tags]);
 
   const clusterCentroids = useMemo(() => {
-    const m = {};
+    const centroids = {};
+
     tags.forEach((tag) => {
-      const ps = laidOut.filter((p) => p.tags && p.tags.includes(tag));
-      if (ps.length < 1) return;
-      const cx = ps.reduce((s, p) => s + p.x, 0) / ps.length;
-      const cy = ps.reduce((s, p) => s + p.y, 0) / ps.length;
-      const maxD = Math.max(55, ...ps.map((p) => Math.sqrt((p.x - cx) ** 2 + (p.y - cy) ** 2))) + 45;
-      m[tag] = { cx, cy, r: maxD, count: ps.length };
+      const taggedNodes = laidOut.filter((paper) => paper.tags && paper.tags.includes(tag));
+      if (taggedNodes.length < 2) return;
+
+      const cx = taggedNodes.reduce((sum, paper) => sum + paper.x, 0) / taggedNodes.length;
+      const cy = taggedNodes.reduce((sum, paper) => sum + paper.y, 0) / taggedNodes.length;
+      const radius =
+        Math.max(
+          52,
+          ...taggedNodes.map((paper) => Math.sqrt((paper.x - cx) ** 2 + (paper.y - cy) ** 2)),
+        ) + 34;
+
+      centroids[tag] = { cx, cy, r: radius, count: taggedNodes.length };
     });
-    return m;
+
+    return centroids;
   }, [laidOut, tags]);
+
+  const tagSummaries = useMemo(
+    () =>
+      tags
+        .map((tag) => ({
+          tag,
+          count: papers.filter((paper) => paper.tags && paper.tags.includes(tag)).length,
+        }))
+        .filter((entry) => entry.count > 0),
+    [papers, tags],
+  );
 
   const handleNodeDown = (e, id) => {
     e.stopPropagation();
@@ -353,32 +372,45 @@ export function GraphView({ papers, setPapers, tags = [] }) {
 
       {/* Filter chips */}
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '16px', alignItems: 'center' }}>
+        <span style={{ fontSize: '12px', fontWeight: 700, color: T2, marginRight: '4px' }}>
+          Filter by tag
+        </span>
         <button
           onClick={() => setFilterTag(null)}
           className={filterTag === null ? 'btn btn-primary btn-small' : 'btn btn-ghost btn-small'}
         >
           All ({papers.length})
         </button>
-        {tags.map((t) => {
-          const count = papers.filter((p) => p.tags && p.tags.includes(t)).length;
-          if (count === 0) return null;
+        {tagSummaries.map(({ tag, count }) => {
           return (
             <button
-              key={t}
-              onClick={() => setFilterTag(filterTag === t ? null : t)}
+              key={tag}
+              onClick={() => setFilterTag(filterTag === tag ? null : tag)}
               style={{
                 padding: '4px 10px',
                 borderRadius: '12px',
-                border: `1px solid ${filterTag === t ? (tagColor[t] || LINK) : BORDER}`,
-                background: filterTag === t ? (tagColor[t] || LINK) + '12' : 'transparent',
-                color: filterTag === t ? (tagColor[t] || LINK) : T2,
+                border: `1px solid ${filterTag === tag ? (tagColor[tag] || LINK) : BORDER}`,
+                background: filterTag === tag ? (tagColor[tag] || LINK) + '12' : BG,
+                color: filterTag === tag ? (tagColor[tag] || LINK) : T2,
                 fontSize: '12px',
                 cursor: 'pointer',
                 fontFamily: 'inherit',
-                fontWeight: filterTag === t ? '700' : '400',
+                fontWeight: filterTag === tag ? '700' : '400',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
               }}
             >
-              {t} ({count})
+              <span
+                style={{
+                  width: '7px',
+                  height: '7px',
+                  borderRadius: '999px',
+                  background: tagColor[tag] || LINK,
+                  flexShrink: 0,
+                }}
+              />
+              {tag} ({count})
             </button>
           );
         })}
@@ -398,6 +430,59 @@ export function GraphView({ papers, setPapers, tags = [] }) {
         <div style={{ display: 'flex', gap: '24px' }}>
           {/* Graph SVG */}
           <div style={{ flex: 1, minWidth: 0 }}>
+            {tagSummaries.length > 0 && (
+              <div
+                className="card"
+                style={{
+                  marginBottom: '12px',
+                  padding: '12px 14px',
+                  display: 'grid',
+                  gap: '10px',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'baseline' }}>
+                  <strong style={{ fontSize: '13px', color: T1 }}>Tag Key</strong>
+                  <span style={{ fontSize: '11px', color: T3 }}>
+                    Colors live in the key, not over the canvas
+                  </span>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                  {tagSummaries.map(({ tag, count }) => (
+                    <button
+                      key={`legend-${tag}`}
+                      type="button"
+                      onClick={() => setFilterTag(filterTag === tag ? null : tag)}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        padding: '6px 10px',
+                        borderRadius: '999px',
+                        border: `1px solid ${filterTag === tag ? (tagColor[tag] || LINK) : BORDER}`,
+                        background: filterTag === tag ? (tagColor[tag] || LINK) + '12' : BG,
+                        color: filterTag === tag ? (tagColor[tag] || LINK) : T1,
+                        fontSize: '12px',
+                        cursor: 'pointer',
+                        fontFamily: 'inherit',
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: '9px',
+                          height: '9px',
+                          borderRadius: '999px',
+                          background: tagColor[tag] || LINK,
+                          boxShadow: `0 0 0 3px ${(tagColor[tag] || LINK)}1f`,
+                          flexShrink: 0,
+                        }}
+                      />
+                      <span>{tag}</span>
+                      <span style={{ color: T3 }}>{count}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <svg
               ref={svgRef}
               width="100%"
@@ -411,7 +496,29 @@ export function GraphView({ papers, setPapers, tags = [] }) {
                 display: 'block',
               }}
               onMouseLeave={() => setHovered(null)}
-            >
+              >
+              {Object.entries(clusterCentroids).map(([tag, cluster]) => (
+                <g key={`cluster-${tag}`} style={{ pointerEvents: 'none' }}>
+                  <circle
+                    cx={cluster.cx}
+                    cy={cluster.cy}
+                    r={cluster.r}
+                    fill={tagColor[tag] || T3}
+                    opacity={filterTag && filterTag !== tag ? 0.015 : 0.03}
+                  />
+                  <circle
+                    cx={cluster.cx}
+                    cy={cluster.cy}
+                    r={cluster.r}
+                    fill="none"
+                    stroke={tagColor[tag] || T3}
+                    strokeWidth={filterTag === tag ? 1.6 : 1}
+                    strokeOpacity={filterTag === tag ? 0.22 : 0.12}
+                    strokeDasharray={filterTag === tag ? '4 3' : '6 5'}
+                  />
+                </g>
+              ))}
+
               <defs>
                 <marker
                   id="arr"
@@ -436,35 +543,6 @@ export function GraphView({ papers, setPapers, tags = [] }) {
                   <path d="M 0 0 L 10 4 L 0 8 z" fill={LINK} />
                 </marker>
               </defs>
-
-              {/* Cluster bubbles */}
-              {Object.entries(clusterCentroids).map(([tag, c]) => (
-                <g key={tag}>
-                  <circle
-                    cx={c.cx}
-                    cy={c.cy}
-                    r={c.r}
-                    fill={tagColor[tag] || T3}
-                    opacity={0.045}
-                    stroke={tagColor[tag] || T3}
-                    strokeWidth={1}
-                    strokeOpacity={0.15}
-                    strokeDasharray="5 3"
-                  />
-                  <text
-                    x={c.cx}
-                    y={c.cy - c.r + 14}
-                    textAnchor="middle"
-                    fontSize={10}
-                    fontWeight={700}
-                    fill={tagColor[tag] || T3}
-                    opacity={0.55}
-                    fontFamily="Lato,sans-serif"
-                  >
-                    {tag}
-                  </text>
-                </g>
-              ))}
 
               {/* Citation edges */}
               {filteredPapers.flatMap((p) =>
