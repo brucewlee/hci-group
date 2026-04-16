@@ -626,6 +626,10 @@ html, body {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
+.pdf-page-shell .react-pdf__Page {
+  background: #fff;
+}
+
 .pdf-page-shell canvas {
   display: block;
   border-radius: 8px;
@@ -661,6 +665,10 @@ html, body {
 
 .annotation-box-draft {
   border-style: dashed;
+}
+
+.annotation-layer.is-active .annotation-box {
+  cursor: crosshair;
 }
 
 .annotation-margin {

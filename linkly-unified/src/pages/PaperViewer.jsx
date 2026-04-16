@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Document, Page, pdfjs } from 'react-pdf';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
@@ -11,6 +11,7 @@ import {
   faMagnifyingGlassMinus,
   faMagnifyingGlassPlus,
 } from '@fortawesome/free-solid-svg-icons';
+import samplePaperUrl from '../assets/sample-paper.pdf?url';
 
 if (!Promise.withResolvers) {
   Promise.withResolvers = function withResolvers() {
@@ -20,6 +21,7 @@ if (!Promise.withResolvers) {
       resolve = res;
       reject = rej;
     });
+
     return { promise, resolve, reject };
   };
 }
@@ -51,7 +53,11 @@ function normalizeDraft(draft) {
   const top = Math.min(draft.startY, draft.endY);
   const width = Math.abs(draft.endX - draft.startX);
   const height = Math.abs(draft.endY - draft.startY);
-  if (width < MIN_RECT_SIZE || height < MIN_RECT_SIZE) return null;
+
+  if (width < MIN_RECT_SIZE || height < MIN_RECT_SIZE) {
+    return null;
+  }
+
   return {
     x: left / draft.containerWidth,
     y: top / draft.containerHeight,
@@ -65,6 +71,7 @@ function createDefaultBounds(draft) {
   const height = Math.min(DEFAULT_ANNOTATION_HEIGHT, draft.containerHeight);
   const left = clamp(draft.startX - width / 2, 0, draft.containerWidth - width);
   const top = clamp(draft.startY - height / 2, 0, draft.containerHeight - height);
+
   return {
     x: left / draft.containerWidth,
     y: top / draft.containerHeight,
@@ -93,17 +100,20 @@ function layoutAnnotationCallouts(pageAnnotations) {
       anchor: annotation.bounds.y + annotation.bounds.height / 2,
       top: 0,
     }));
+
   let cursor = 0;
   laidOut.forEach((item) => {
     const desiredTop = clamp(item.anchor - CALLOUT_HEIGHT / 2, 0, 1 - CALLOUT_HEIGHT);
     item.top = Math.max(desiredTop, cursor);
     cursor = item.top + CALLOUT_HEIGHT + CALLOUT_GAP;
   });
+
   const overflow = cursor - CALLOUT_GAP - 1;
   if (overflow > 0) {
     laidOut.forEach((item) => {
       item.top -= overflow;
     });
+
     if (laidOut[0] && laidOut[0].top < 0) {
       laidOut[0].top = 0;
       for (let index = 1; index < laidOut.length; index += 1) {
@@ -111,6 +121,7 @@ function layoutAnnotationCallouts(pageAnnotations) {
       }
     }
   }
+
   return laidOut;
 }
 
@@ -119,6 +130,10 @@ function calloutStyle(top) {
     top: `${top * 100}%`,
     height: `${CALLOUT_HEIGHT * 100}%`,
   };
+}
+
+function getTabButtonClass(isActive) {
+  return isActive ? 'simple-tab is-active' : 'simple-tab';
 }
 
 export function PaperViewer({ paper, updatePaper }) {
@@ -149,12 +164,29 @@ export function PaperViewer({ paper, updatePaper }) {
   const pageRefs = useRef(new Map());
   const selectionTimeoutRef = useRef(null);
 
-  // Sync to parent paper state
+  useEffect(() => {
+    setGlossaryEntries(paper?.glossary || []);
+    setAnnotations(paper?.annotations || []);
+    setSelectionDraft(null);
+    setTermDraft('');
+    setDefinitionDraft('');
+    setDragDraft(null);
+    setPendingAnnotation(null);
+    setCommentDraft('');
+    setActiveAnnotationId(null);
+    setEditingGlossaryId(null);
+    setExpandedGlossaryId(null);
+    setEditingAnnotationId(null);
+    setEditingAnnotationComment('');
+    setSidebarCollapsed(false);
+    setActiveTab('glossary');
+  }, [paper?.id]);
+
   useEffect(() => {
     if (paper && updatePaper) {
       updatePaper(paperId, { glossary: glossaryEntries, annotations });
     }
-  }, [glossaryEntries, annotations, paperId, paper, updatePaper]);
+  }, [annotations, glossaryEntries, paper, paperId, updatePaper]);
 
   useEffect(() => {
     return () => {
@@ -166,7 +198,10 @@ export function PaperViewer({ paper, updatePaper }) {
 
   if (!paper) {
     return (
-      <div className="page-wrapper" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '80vh' }}>
+      <div
+        className="page-wrapper"
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '80vh' }}
+      >
         <div style={{ textAlign: 'center' }}>
           <p>Paper not found.</p>
           <Link to="/library" className="btn btn-primary" style={{ marginTop: '16px' }}>
@@ -178,8 +213,12 @@ export function PaperViewer({ paper, updatePaper }) {
   }
 
   function rememberPageNode(pageNumber, node) {
-    if (node) pageRefs.current.set(pageNumber, node);
-    else pageRefs.current.delete(pageNumber);
+    if (node) {
+      pageRefs.current.set(pageNumber, node);
+      return;
+    }
+
+    pageRefs.current.delete(pageNumber);
   }
 
   function openSidebarTab(tab) {
@@ -198,22 +237,29 @@ export function PaperViewer({ paper, updatePaper }) {
 
   function scheduleSelectionCapture() {
     if (annotationMode) return;
+
     if (selectionTimeoutRef.current) {
       window.clearTimeout(selectionTimeoutRef.current);
     }
+
     selectionTimeoutRef.current = window.setTimeout(() => {
       const selection = window.getSelection();
       if (!selection || selection.rangeCount === 0) return;
+
       const text = selection.toString().replace(/\s+/g, ' ').trim();
       if (!text) return;
+
       const range = selection.getRangeAt(0);
       const ancestor =
         range.commonAncestorContainer.nodeType === Node.TEXT_NODE
           ? range.commonAncestorContainer.parentElement
           : range.commonAncestorContainer;
+
       if (!(ancestor instanceof Element) || !viewerRef.current?.contains(ancestor)) return;
+
       const pageElement = ancestor.closest('[data-page-number]');
       const pageNumber = Number(pageElement?.dataset.pageNumber || 1);
+
       setSelectionDraft({ text, pageNumber });
       setTermDraft(text);
       setDefinitionDraft('');
@@ -266,15 +312,18 @@ export function PaperViewer({ paper, updatePaper }) {
       definition,
       pageNumber: selectionDraft?.pageNumber || 1,
     };
+
     setGlossaryEntries((current) => [nextEntry, ...current]);
     clearGlossaryDraft();
   }
 
   function deleteGlossaryEntry(entryId) {
     setGlossaryEntries((current) => current.filter((entry) => entry.id !== entryId));
+
     if (editingGlossaryId === entryId) {
       clearGlossaryDraft();
     }
+
     if (expandedGlossaryId === entryId) {
       setExpandedGlossaryId(null);
     }
@@ -283,6 +332,7 @@ export function PaperViewer({ paper, updatePaper }) {
   function getRelativePoint(pageNumber, event) {
     const pageNode = pageRefs.current.get(pageNumber);
     if (!pageNode) return null;
+
     const bounds = pageNode.getBoundingClientRect();
     return {
       x: clamp(event.clientX - bounds.left, 0, bounds.width),
@@ -296,6 +346,7 @@ export function PaperViewer({ paper, updatePaper }) {
     if (!annotationMode || pendingAnnotation) return;
     const point = getRelativePoint(pageNumber, event);
     if (!point) return;
+
     event.preventDefault();
     event.currentTarget.setPointerCapture?.(event.pointerId);
     setDragDraft({
@@ -314,6 +365,7 @@ export function PaperViewer({ paper, updatePaper }) {
     const point = getRelativePoint(pageNumber, event);
     setDragDraft((current) => {
       if (!current || current.pageNumber !== pageNumber || !point) return current;
+
       return {
         ...current,
         endX: point.x,
@@ -326,11 +378,14 @@ export function PaperViewer({ paper, updatePaper }) {
 
   function finishAnnotation(pageNumber, event) {
     const point = getRelativePoint(pageNumber, event);
+
     if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
+
     setDragDraft((current) => {
       if (!current || current.pageNumber !== pageNumber) return current;
+
       const completedDraft = point
         ? {
             ...current,
@@ -340,8 +395,10 @@ export function PaperViewer({ paper, updatePaper }) {
             containerHeight: point.containerHeight,
           }
         : current;
+
       const normalized = normalizeDraft(completedDraft);
       const finalBounds = normalized || createDefaultBounds(completedDraft);
+
       setPendingAnnotation({ pageNumber, bounds: finalBounds });
       setAnnotationMode(false);
       setCommentDraft('');
@@ -372,6 +429,7 @@ export function PaperViewer({ paper, updatePaper }) {
     if (!editingAnnotationId || !editingAnnotationComment.trim()) {
       return;
     }
+
     setAnnotations((current) =>
       current.map((annotation) =>
         annotation.id === editingAnnotationId
@@ -395,12 +453,14 @@ export function PaperViewer({ paper, updatePaper }) {
   function saveAnnotation(event) {
     event.preventDefault();
     if (!pendingAnnotation || !commentDraft.trim()) return;
+
     const nextAnnotation = {
       id: createId(),
       pageNumber: pendingAnnotation.pageNumber,
       bounds: pendingAnnotation.bounds,
       comment: commentDraft.trim(),
     };
+
     setAnnotations((current) => [nextAnnotation, ...current]);
     setPendingAnnotation(null);
     setCommentDraft('');
@@ -438,25 +498,38 @@ export function PaperViewer({ paper, updatePaper }) {
     : 'pdf-workbench';
   const sidebarClassName = sidebarCollapsed ? 'pdf-sidebar is-collapsed' : 'pdf-sidebar';
   const annotationToggleClassName = annotationMode ? 'primary-button' : 'secondary-button';
-
-  // For now, use a placeholder PDF URL - in production would load from paper.file
-  const pdfUrl = paper?.file || 'https://arxiv.org/pdf/2312.06942.pdf';
+  const paperTitle = paper.title || 'Sample Academic Paper';
+  const pdfUrl = paper.file || samplePaperUrl;
 
   return (
     <div className="page-wrapper" style={{ padding: 0 }}>
-      <div style={{ padding: '12px 24px', borderBottom: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', gap: '12px' }}>
-        <button onClick={() => navigate('/library')} className="btn btn-icon">
+      <div
+        style={{
+          padding: '12px 24px',
+          borderBottom: '1px solid var(--color-border)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+        }}
+      >
+        <button onClick={() => navigate('/library')} className="btn btn-icon" type="button">
           <FontAwesomeIcon icon={faChevronLeft} />
         </button>
-        <h2 style={{ flex: 1, marginBottom: 0 }}>{paper.title || 'Untitled Paper'}</h2>
+        <h2 style={{ flex: 1, marginBottom: 0 }}>{paperTitle}</h2>
       </div>
 
       <section className={workbenchClassName} style={{ padding: '16px', margin: 0 }}>
-        <div className="pdf-stage" onMouseUp={scheduleSelectionCapture}>
+        <div
+          className="pdf-stage"
+          ref={viewerRef}
+          onMouseUp={scheduleSelectionCapture}
+          onTouchEnd={scheduleSelectionCapture}
+        >
           <div className="pdf-stage-header">
             <div className="pdf-stage-title">
-              <h2>{paper.title}</h2>
+              <h2>{paperTitle}</h2>
             </div>
+
             <div className="zoom-controls">
               <button
                 className="icon-button"
@@ -564,6 +637,7 @@ export function PaperViewer({ paper, updatePaper }) {
                             {laidOutAnnotations.map(({ annotation, anchor, top }) => {
                               const calloutMidpoint = (top + CALLOUT_HEIGHT / 2) * 100;
                               const anchorPoint = anchor * 100;
+
                               return (
                                 <g key={`${annotation.id}-connector`}>
                                   <polyline
@@ -574,6 +648,7 @@ export function PaperViewer({ paper, updatePaper }) {
                               );
                             })}
                           </svg>
+
                           {laidOutAnnotations.map(({ annotation, anchor }) => (
                             <span
                               key={`${annotation.id}-anchor`}
@@ -582,6 +657,7 @@ export function PaperViewer({ paper, updatePaper }) {
                               aria-hidden="true"
                             />
                           ))}
+
                           {laidOutAnnotations.map(({ annotation, top }) => (
                             <button
                               key={`${annotation.id}-callout`}
@@ -620,10 +696,15 @@ export function PaperViewer({ paper, updatePaper }) {
                 <FontAwesomeIcon icon={faChevronLeft} />
               </button>
               <button
-                className={annotationsVisible ? 'icon-button sidebar-mini-toggle is-active' : 'icon-button sidebar-mini-toggle'}
+                className={
+                  annotationsVisible
+                    ? 'icon-button sidebar-mini-toggle is-active'
+                    : 'icon-button sidebar-mini-toggle'
+                }
                 type="button"
                 onClick={() => setAnnotationVisibility(!annotationsVisible)}
                 aria-label={annotationsVisible ? 'Hide annotations' : 'Show annotations'}
+                title={annotationsVisible ? 'Hide annotations' : 'Show annotations'}
               >
                 <FontAwesomeIcon icon={annotationsVisible ? faEye : faEyeSlash} />
               </button>
@@ -640,14 +721,14 @@ export function PaperViewer({ paper, updatePaper }) {
                   <FontAwesomeIcon icon={faChevronRight} />
                 </button>
                 <button
-                  className={activeTab === 'glossary' ? 'simple-tab is-active' : 'simple-tab'}
+                  className={getTabButtonClass(activeTab === 'glossary')}
                   type="button"
                   onClick={() => setActiveTab('glossary')}
                 >
                   Glossary
                 </button>
                 <button
-                  className={activeTab === 'annotations' ? 'simple-tab is-active' : 'simple-tab'}
+                  className={getTabButtonClass(activeTab === 'annotations')}
                   type="button"
                   onClick={() => setActiveTab('annotations')}
                 >
@@ -672,6 +753,7 @@ export function PaperViewer({ paper, updatePaper }) {
                           <div className="glossary-source-chip">"{selectionDraft.text}"</div>
                         ) : null}
                       </div>
+
                       <form className="stack-form" onSubmit={saveGlossaryEntry}>
                         <input
                           className="text-input"
@@ -783,6 +865,7 @@ export function PaperViewer({ paper, updatePaper }) {
                           />
                           <span>Show annotations</span>
                         </label>
+
                         <button
                           className={annotationToggleClassName}
                           type="button"
