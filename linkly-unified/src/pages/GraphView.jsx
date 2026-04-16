@@ -98,6 +98,16 @@ function EdgeGroup({ x1, y1, x2, y2, hl, dim, onDelete }) {
   );
 }
 
+function clientToSvgPoint(svg, clientX, clientY) {
+  if (!svg) return null;
+
+  const ctm = svg.getScreenCTM();
+  if (!ctm) return null;
+
+  const point = new DOMPoint(clientX, clientY);
+  return point.matrixTransform(ctm.inverse());
+}
+
 export function GraphView({ papers, setPapers, tags = [] }) {
   const [filterTag, setFilterTag] = useState(null);
   const [laidOut, setLaidOut] = useState([]);
@@ -147,9 +157,10 @@ export function GraphView({ papers, setPapers, tags = [] }) {
 
   const handleNodeDown = (e, id) => {
     e.stopPropagation();
-    const rect = svgRef.current.getBoundingClientRect();
+    const point = clientToSvgPoint(svgRef.current, e.clientX, e.clientY);
     const n = laidOut.find((x) => x.id === id);
-    dragOff.current = { x: e.clientX - rect.left - n.x, y: e.clientY - rect.top - n.y };
+    if (!point || !n) return;
+    dragOff.current = { x: point.x - n.x, y: point.y - n.y };
     setDragId(id);
   };
 
@@ -157,29 +168,31 @@ export function GraphView({ papers, setPapers, tags = [] }) {
     e.stopPropagation();
     e.preventDefault();
     setEdgeDragFrom(id);
-    const rect = svgRef.current.getBoundingClientRect();
-    setEdgeDragMouse({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+    const point = clientToSvgPoint(svgRef.current, e.clientX, e.clientY);
+    if (!point) return;
+    setEdgeDragMouse({ x: point.x, y: point.y });
   };
 
   const handleMove = useCallback(
     (e) => {
       if (!svgRef.current) return;
-      const rect = svgRef.current.getBoundingClientRect();
+      const point = clientToSvgPoint(svgRef.current, e.clientX, e.clientY);
+      if (!point) return;
       if (dragId) {
         setLaidOut((prev) =>
           prev.map((n) =>
             n.id === dragId
               ? {
                   ...n,
-                  x: Math.max(40, Math.min(W - 40, e.clientX - rect.left - dragOff.current.x)),
-                  y: Math.max(40, Math.min(H - 40, e.clientY - rect.top - dragOff.current.y)),
+                  x: Math.max(40, Math.min(W - 40, point.x - dragOff.current.x)),
+                  y: Math.max(40, Math.min(H - 40, point.y - dragOff.current.y)),
                 }
               : n,
           ),
         );
       }
       if (edgeDragFrom) {
-        setEdgeDragMouse({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+        setEdgeDragMouse({ x: point.x, y: point.y });
       }
     },
     [dragId, edgeDragFrom],
@@ -188,9 +201,15 @@ export function GraphView({ papers, setPapers, tags = [] }) {
   const handleUp = useCallback(
     (e) => {
       if (edgeDragFrom && svgRef.current) {
-        const rect = svgRef.current.getBoundingClientRect();
-        const mx = e.clientX - rect.left,
-          my = e.clientY - rect.top;
+        const point = clientToSvgPoint(svgRef.current, e.clientX, e.clientY);
+        if (!point) {
+          setDragId(null);
+          setEdgeDragFrom(null);
+          setEdgeDragMouse(null);
+          return;
+        }
+        const mx = point.x;
+        const my = point.y;
         const target = laidOut.find(
           (n) => n.id !== edgeDragFrom && Math.sqrt((n.x - mx) ** 2 + (n.y - my) ** 2) < 28,
         );
