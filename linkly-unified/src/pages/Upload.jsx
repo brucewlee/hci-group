@@ -16,24 +16,118 @@ export function Upload({ addPaper }) {
 
   const navigate = useNavigate();
 
+  const blobToDataURL = (blob) =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+
+  const fetchArxivPdf = async (id) => {
+    const pdfUrls = [
+      `https://arxiv.org/pdf/${id}.pdf`,
+      `https://arxiv.org/pdf/${id}`,
+      `https://export.arxiv.org/pdf/${id}.pdf`,
+      `https://corsproxy.io/?${encodeURIComponent(`https://arxiv.org/pdf/${id}.pdf`)}`,
+    ];
+    for (const url of pdfUrls) {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) continue;
+        const blob = await res.blob();
+        if (blob.type && !blob.type.includes('pdf') && blob.size < 1000) continue;
+        return await blobToDataURL(blob);
+      } catch {
+        // try next
+      }
+    }
+    return null;
+  };
+
+  const fetchSemanticScholar = async (id) => {
+    try {
+      const res = await fetch(
+        `https://api.semanticscholar.org/graph/v1/paper/ARXIV:${id}?fields=title,authors,abstract,year`
+      );
+      if (!res.ok) return null;
+      const data = await res.json();
+      return {
+        title: data.title || '',
+        authors: (data.authors || []).map((a) => a.name).join(', '),
+        abstract: data.abstract || '',
+        year: data.year ? String(data.year) : '',
+      };
+    } catch {
+      return null;
+    }
+  };
+
+  const fetchArxivApi = async (id) => {
+    const endpoints = [
+      `https://export.arxiv.org/api/query?id_list=${id}`,
+      `https://corsproxy.io/?${encodeURIComponent(`https://export.arxiv.org/api/query?id_list=${id}`)}`,
+    ];
+    for (const url of endpoints) {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) continue;
+        const xml = await res.text();
+        const doc = new DOMParser().parseFromString(xml, 'application/xml');
+        const entry = doc.querySelector('entry');
+        if (!entry) continue;
+        const title = entry.querySelector('title')?.textContent?.trim() || '';
+        const summary = entry.querySelector('summary')?.textContent?.trim() || '';
+        const published = entry.querySelector('published')?.textContent || '';
+        const authors = Array.from(entry.querySelectorAll('author > name'))
+          .map((n) => n.textContent.trim())
+          .join(', ');
+        return {
+          title: title.replace(/\s+/g, ' '),
+          authors,
+          abstract: summary.replace(/\s+/g, ' '),
+          year: published.slice(0, 4),
+        };
+      } catch {
+        // try next
+      }
+    }
+    return null;
+  };
+
   const fetchArxivMeta = async () => {
     if (!arxiv.trim()) return;
     const match = arxiv.match(/arxiv\.org\/(?:abs|pdf)\/(\d+\.\d+)/);
     if (!match) return;
+    const id = match[1];
 
     setArxivLoading(true);
     try {
-      const res = await fetch(
-        `https://api.semanticscholar.org/graph/v1/paper/ARXIV:${match[1]}?fields=title,authors,abstract,year`
-      );
-      if (!res.ok) throw new Error(res.status);
-      const data = await res.json();
-      if (data.title) setTitle(data.title);
-      if (data.authors?.length) setAuthors(data.authors.map((a) => a.name).join(', '));
-      if (data.abstract) setAbstract(data.abstract);
-      if (data.year) setYear(String(data.year));
+      const [ss, ax, pdfData] = await Promise.all([
+        fetchSemanticScholar(id),
+        fetchArxivApi(id),
+        fetchArxivPdf(id),
+      ]);
+
+      const meta = {
+        title: ss?.title || ax?.title || '',
+        authors: ss?.authors || ax?.authors || '',
+        abstract: ss?.abstract || ax?.abstract || '',
+        year: ss?.year || ax?.year || '',
+      };
+
+      if (meta.title) setTitle(meta.title);
+      if (meta.authors) setAuthors(meta.authors);
+      if (meta.abstract) setAbstract(meta.abstract);
+      if (meta.year) setYear(meta.year);
+
+      if (pdfData) {
+        setFileData(pdfData);
+      } else {
+        console.warn('Could not fetch PDF from arXiv — please upload manually.');
+      }
     } catch (err) {
-      console.error('Metadata fetch failed:', err);
+      console.error('arXiv fetch failed:', err);
     } finally {
       setArxivLoading(false);
     }
@@ -97,13 +191,17 @@ export function Upload({ addPaper }) {
         </div>
 
         <div className="form-group">
-          <label className="form-label">PDF File *</label>
+          <label className="form-label">
+            PDF File {fileData ? '✓' : '*'}
+          </label>
           <input
             type="file"
             accept=".pdf"
             onChange={handleFileChange}
-            required
           />
+          <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
+            Upload a PDF, or paste an arXiv link below and click Fetch to auto-load it.
+          </div>
         </div>
 
         <div className="form-group">
