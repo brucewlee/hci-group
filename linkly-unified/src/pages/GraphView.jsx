@@ -15,6 +15,15 @@ const TAG_COLORS = [
 
 const W = 800;
 const H = 500;
+const NODE_REGION_RADIUS = 34;
+const MIN_ZOOM = 0.6;
+const MAX_ZOOM = 2.2;
+const DRAG_BOUNDS = {
+  minX: -W * 2,
+  maxX: W * 3,
+  minY: -H * 2,
+  maxY: H * 3,
+};
 
 function runLayout(papers, iterations = 180) {
   const ns = papers.map((p) => ({
@@ -112,17 +121,151 @@ function clientToSvgPoint(svg, clientX, clientY) {
   return point.matrixTransform(ctm.inverse());
 }
 
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function svgPointToGraphPoint(point, pan, zoom) {
+  if (!point) return null;
+
+  return {
+    x: (point.x - pan.x) / zoom,
+    y: (point.y - pan.y) / zoom,
+  };
+}
+
+function cross(origin, pointA, pointB) {
+  return (pointA.x - origin.x) * (pointB.y - origin.y) - (pointA.y - origin.y) * (pointB.x - origin.x);
+}
+
+function getConvexHull(points) {
+  if (points.length <= 1) return points;
+
+  const sortedPoints = [...points].sort((left, right) =>
+    left.x === right.x ? left.y - right.y : left.x - right.x,
+  );
+  const lower = [];
+
+  sortedPoints.forEach((point) => {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], point) <= 0) {
+      lower.pop();
+    }
+    lower.push(point);
+  });
+
+  const upper = [];
+
+  for (let index = sortedPoints.length - 1; index >= 0; index -= 1) {
+    const point = sortedPoints[index];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], point) <= 0) {
+      upper.pop();
+    }
+    upper.push(point);
+  }
+
+  lower.pop();
+  upper.pop();
+  return [...lower, ...upper];
+}
+
+function createCirclePath(cx, cy, radius) {
+  return [
+    `M ${cx - radius} ${cy}`,
+    `a ${radius} ${radius} 0 1 0 ${radius * 2} 0`,
+    `a ${radius} ${radius} 0 1 0 ${radius * -2} 0`,
+  ].join(' ');
+}
+
+function createCapsulePath(start, end, radius, extension = 14) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const distance = Math.hypot(dx, dy) || 1;
+  const ux = dx / distance;
+  const uy = dy / distance;
+  const nx = -uy;
+  const ny = ux;
+  const extendedStart = { x: start.x - ux * extension, y: start.y - uy * extension };
+  const extendedEnd = { x: end.x + ux * extension, y: end.y + uy * extension };
+  const topLeft = { x: extendedStart.x + nx * radius, y: extendedStart.y + ny * radius };
+  const topRight = { x: extendedEnd.x + nx * radius, y: extendedEnd.y + ny * radius };
+  const bottomRight = { x: extendedEnd.x - nx * radius, y: extendedEnd.y - ny * radius };
+  const bottomLeft = { x: extendedStart.x - nx * radius, y: extendedStart.y - ny * radius };
+
+  return [
+    `M ${topLeft.x} ${topLeft.y}`,
+    `L ${topRight.x} ${topRight.y}`,
+    `A ${radius} ${radius} 0 0 1 ${bottomRight.x} ${bottomRight.y}`,
+    `L ${bottomLeft.x} ${bottomLeft.y}`,
+    `A ${radius} ${radius} 0 0 1 ${topLeft.x} ${topLeft.y}`,
+    'Z',
+  ].join(' ');
+}
+
+function createRegionPath(points, padding = NODE_REGION_RADIUS) {
+  if (points.length === 0) return '';
+
+  if (points.length === 1) {
+    return createCirclePath(points[0].x, points[0].y, padding + 4);
+  }
+
+  if (points.length === 2) {
+    return createCapsulePath(points[0], points[1], padding, 18);
+  }
+
+  const hull = getConvexHull(points);
+  const center = hull.reduce(
+    (accumulator, point) => ({
+      x: accumulator.x + point.x / hull.length,
+      y: accumulator.y + point.y / hull.length,
+    }),
+    { x: 0, y: 0 },
+  );
+  const expandedHull = hull.map((point) => {
+    const dx = point.x - center.x;
+    const dy = point.y - center.y;
+    const distance = Math.hypot(dx, dy) || 1;
+
+    return {
+      x: point.x + (dx / distance) * padding,
+      y: point.y + (dy / distance) * padding,
+    };
+  });
+  const midpoints = expandedHull.map((point, index) => {
+    const nextPoint = expandedHull[(index + 1) % expandedHull.length];
+    return {
+      x: (point.x + nextPoint.x) / 2,
+      y: (point.y + nextPoint.y) / 2,
+    };
+  });
+
+  return expandedHull.reduce((path, point, index) => {
+    const midpoint = midpoints[index];
+
+    if (index === 0) {
+      const previousMidpoint = midpoints[midpoints.length - 1];
+      return `M ${previousMidpoint.x} ${previousMidpoint.y} Q ${point.x} ${point.y} ${midpoint.x} ${midpoint.y}`;
+    }
+
+    return `${path} Q ${point.x} ${point.y} ${midpoint.x} ${midpoint.y}`;
+  }, '') + ' Z';
+}
+
 export function GraphView({ papers, setPapers, tags = [] }) {
   const [filterTag, setFilterTag] = useState(null);
   const [laidOut, setLaidOut] = useState([]);
   const [hovered, setHovered] = useState(null);
+  const [hoveredTag, setHoveredTag] = useState(null);
   const [selected, setSelected] = useState(null);
   const [tagDraft, setTagDraft] = useState('');
   const [dragId, setDragId] = useState(null);
   const [edgeDragFrom, setEdgeDragFrom] = useState(null);
   const [edgeDragMouse, setEdgeDragMouse] = useState(null);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [isPanning, setIsPanning] = useState(false);
   const svgRef = useRef(null);
   const dragOff = useRef({ x: 0, y: 0 });
+  const panStartRef = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
   const prevPaperIds = useRef('');
 
   const filteredPapers = filterTag ? papers.filter((p) => p.tags && p.tags.includes(filterTag)) : papers;
@@ -175,26 +318,23 @@ export function GraphView({ papers, setPapers, tags = [] }) {
     return m;
   }, [tags]);
 
-  const clusterCentroids = useMemo(() => {
-    const centroids = {};
+  const tagRegions = useMemo(
+    () =>
+      tags
+        .map((tag) => {
+          const taggedNodes = laidOut.filter((paper) => paper.tags && paper.tags.includes(tag));
+          if (taggedNodes.length === 0) return null;
 
-    tags.forEach((tag) => {
-      const taggedNodes = laidOut.filter((paper) => paper.tags && paper.tags.includes(tag));
-      if (taggedNodes.length < 2) return;
-
-      const cx = taggedNodes.reduce((sum, paper) => sum + paper.x, 0) / taggedNodes.length;
-      const cy = taggedNodes.reduce((sum, paper) => sum + paper.y, 0) / taggedNodes.length;
-      const radius =
-        Math.max(
-          52,
-          ...taggedNodes.map((paper) => Math.sqrt((paper.x - cx) ** 2 + (paper.y - cy) ** 2)),
-        ) + 34;
-
-      centroids[tag] = { cx, cy, r: radius, count: taggedNodes.length };
-    });
-
-    return centroids;
-  }, [laidOut, tags]);
+          return {
+            tag,
+            count: taggedNodes.length,
+            path: createRegionPath(taggedNodes.map((paper) => ({ x: paper.x, y: paper.y }))),
+          };
+        })
+        .filter(Boolean)
+        .sort((left, right) => right.count - left.count),
+    [laidOut, tags],
+  );
 
   const tagSummaries = useMemo(
     () =>
@@ -209,7 +349,11 @@ export function GraphView({ papers, setPapers, tags = [] }) {
 
   const handleNodeDown = (e, id) => {
     e.stopPropagation();
-    const point = clientToSvgPoint(svgRef.current, e.clientX, e.clientY);
+    const point = svgPointToGraphPoint(
+      clientToSvgPoint(svgRef.current, e.clientX, e.clientY),
+      pan,
+      zoom,
+    );
     const n = laidOut.find((x) => x.id === id);
     if (!point || !n) return;
     dragOff.current = { x: point.x - n.x, y: point.y - n.y };
@@ -220,24 +364,52 @@ export function GraphView({ papers, setPapers, tags = [] }) {
     e.stopPropagation();
     e.preventDefault();
     setEdgeDragFrom(id);
-    const point = clientToSvgPoint(svgRef.current, e.clientX, e.clientY);
+    const point = svgPointToGraphPoint(
+      clientToSvgPoint(svgRef.current, e.clientX, e.clientY),
+      pan,
+      zoom,
+    );
     if (!point) return;
     setEdgeDragMouse({ x: point.x, y: point.y });
+  };
+
+  const handleBackgroundDown = (e) => {
+    if (e.target !== e.currentTarget) return;
+
+    const point = clientToSvgPoint(svgRef.current, e.clientX, e.clientY);
+    if (!point) return;
+
+    panStartRef.current = {
+      x: point.x,
+      y: point.y,
+      panX: pan.x,
+      panY: pan.y,
+    };
+    setIsPanning(true);
   };
 
   const handleMove = useCallback(
     (e) => {
       if (!svgRef.current) return;
-      const point = clientToSvgPoint(svgRef.current, e.clientX, e.clientY);
-      if (!point) return;
+      const svgPoint = clientToSvgPoint(svgRef.current, e.clientX, e.clientY);
+      if (!svgPoint) return;
+      const point = svgPointToGraphPoint(svgPoint, pan, zoom);
+
+      if (isPanning) {
+        setPan({
+          x: panStartRef.current.panX + (svgPoint.x - panStartRef.current.x),
+          y: panStartRef.current.panY + (svgPoint.y - panStartRef.current.y),
+        });
+      }
+
       if (dragId) {
         setLaidOut((prev) =>
           prev.map((n) =>
             n.id === dragId
               ? {
                   ...n,
-                  x: Math.max(40, Math.min(W - 40, point.x - dragOff.current.x)),
-                  y: Math.max(40, Math.min(H - 40, point.y - dragOff.current.y)),
+                  x: clamp(point.x - dragOff.current.x, DRAG_BOUNDS.minX, DRAG_BOUNDS.maxX),
+                  y: clamp(point.y - dragOff.current.y, DRAG_BOUNDS.minY, DRAG_BOUNDS.maxY),
                 }
               : n,
           ),
@@ -247,17 +419,22 @@ export function GraphView({ papers, setPapers, tags = [] }) {
         setEdgeDragMouse({ x: point.x, y: point.y });
       }
     },
-    [dragId, edgeDragFrom],
+    [dragId, edgeDragFrom, isPanning, pan, zoom],
   );
 
   const handleUp = useCallback(
     (e) => {
       if (edgeDragFrom && svgRef.current) {
-        const point = clientToSvgPoint(svgRef.current, e.clientX, e.clientY);
+        const point = svgPointToGraphPoint(
+          clientToSvgPoint(svgRef.current, e.clientX, e.clientY),
+          pan,
+          zoom,
+        );
         if (!point) {
           setDragId(null);
           setEdgeDragFrom(null);
           setEdgeDragMouse(null);
+          setIsPanning(false);
           return;
         }
         const mx = point.x;
@@ -281,8 +458,48 @@ export function GraphView({ papers, setPapers, tags = [] }) {
       setDragId(null);
       setEdgeDragFrom(null);
       setEdgeDragMouse(null);
+      setIsPanning(false);
     },
-    [edgeDragFrom, laidOut, setPapers],
+    [edgeDragFrom, laidOut, pan, setPapers, zoom],
+  );
+
+  const updateZoom = useCallback((nextZoom, focusPoint = null) => {
+    const clampedZoom = clamp(nextZoom, MIN_ZOOM, MAX_ZOOM);
+
+    setZoom((currentZoom) => {
+      if (Math.abs(clampedZoom - currentZoom) < 0.001) {
+        return currentZoom;
+      }
+
+      if (focusPoint) {
+        setPan((currentPan) => {
+          const graphPoint = {
+            x: (focusPoint.x - currentPan.x) / currentZoom,
+            y: (focusPoint.y - currentPan.y) / currentZoom,
+          };
+
+          return {
+            x: focusPoint.x - graphPoint.x * clampedZoom,
+            y: focusPoint.y - graphPoint.y * clampedZoom,
+          };
+        });
+      }
+
+      return clampedZoom;
+    });
+  }, []);
+
+  const handleWheel = useCallback(
+    (e) => {
+      e.preventDefault();
+
+      const svgPoint = clientToSvgPoint(svgRef.current, e.clientX, e.clientY);
+      if (!svgPoint) return;
+
+      const zoomDelta = e.deltaY < 0 ? 1.12 : 0.9;
+      updateZoom(zoom * zoomDelta, svgPoint);
+    },
+    [updateZoom, zoom],
   );
 
   useEffect(() => {
@@ -366,7 +583,7 @@ export function GraphView({ papers, setPapers, tags = [] }) {
       <div className="page-header">
         <h1 className="page-title">Knowledge Graph</h1>
         <p className="page-subtitle">
-          {papers.length} paper{papers.length !== 1 ? 's' : ''} · drag nodes to explore relationships
+          {papers.length} paper{papers.length !== 1 ? 's' : ''} · drag nodes to explore relationships, drag the background to pan, and scroll to zoom
         </p>
       </div>
 
@@ -386,6 +603,8 @@ export function GraphView({ papers, setPapers, tags = [] }) {
             <button
               key={tag}
               onClick={() => setFilterTag(filterTag === tag ? null : tag)}
+              onMouseEnter={() => setHoveredTag(tag)}
+              onMouseLeave={() => setHoveredTag(null)}
               style={{
                 padding: '4px 10px',
                 borderRadius: '12px',
@@ -430,59 +649,42 @@ export function GraphView({ papers, setPapers, tags = [] }) {
         <div style={{ display: 'flex', gap: '24px' }}>
           {/* Graph SVG */}
           <div style={{ flex: 1, minWidth: 0 }}>
-            {tagSummaries.length > 0 && (
-              <div
-                className="card"
-                style={{
-                  marginBottom: '12px',
-                  padding: '12px 14px',
-                  display: 'grid',
-                  gap: '10px',
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                alignItems: 'center',
+                gap: '8px',
+                marginBottom: '10px',
+              }}
+            >
+              <button
+                type="button"
+                className="btn btn-ghost btn-small"
+                onClick={() => updateZoom(zoom - 0.15)}
+                disabled={zoom <= MIN_ZOOM + 0.001}
+              >
+                -
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost btn-small"
+                onClick={() => {
+                  setPan({ x: 0, y: 0 });
+                  setZoom(1);
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'baseline' }}>
-                  <strong style={{ fontSize: '13px', color: T1 }}>Tag Key</strong>
-                  <span style={{ fontSize: '11px', color: T3 }}>
-                    Colors live in the key, not over the canvas
-                  </span>
-                </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                  {tagSummaries.map(({ tag, count }) => (
-                    <button
-                      key={`legend-${tag}`}
-                      type="button"
-                      onClick={() => setFilterTag(filterTag === tag ? null : tag)}
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        padding: '6px 10px',
-                        borderRadius: '999px',
-                        border: `1px solid ${filterTag === tag ? (tagColor[tag] || LINK) : BORDER}`,
-                        background: filterTag === tag ? (tagColor[tag] || LINK) + '12' : BG,
-                        color: filterTag === tag ? (tagColor[tag] || LINK) : T1,
-                        fontSize: '12px',
-                        cursor: 'pointer',
-                        fontFamily: 'inherit',
-                      }}
-                    >
-                      <span
-                        style={{
-                          width: '9px',
-                          height: '9px',
-                          borderRadius: '999px',
-                          background: tagColor[tag] || LINK,
-                          boxShadow: `0 0 0 3px ${(tagColor[tag] || LINK)}1f`,
-                          flexShrink: 0,
-                        }}
-                      />
-                      <span>{tag}</span>
-                      <span style={{ color: T3 }}>{count}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
+                {Math.round(zoom * 100)}%
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost btn-small"
+                onClick={() => updateZoom(zoom + 0.15)}
+                disabled={zoom >= MAX_ZOOM - 0.001}
+              >
+                +
+              </button>
+            </div>
             <svg
               ref={svgRef}
               width="100%"
@@ -494,31 +696,12 @@ export function GraphView({ papers, setPapers, tags = [] }) {
                 border: `1px solid ${BORDER}`,
                 userSelect: 'none',
                 display: 'block',
+                cursor: isPanning ? 'grabbing' : 'grab',
               }}
+              onMouseDown={handleBackgroundDown}
+              onWheel={handleWheel}
               onMouseLeave={() => setHovered(null)}
-              >
-              {Object.entries(clusterCentroids).map(([tag, cluster]) => (
-                <g key={`cluster-${tag}`} style={{ pointerEvents: 'none' }}>
-                  <circle
-                    cx={cluster.cx}
-                    cy={cluster.cy}
-                    r={cluster.r}
-                    fill={tagColor[tag] || T3}
-                    opacity={filterTag && filterTag !== tag ? 0.015 : 0.03}
-                  />
-                  <circle
-                    cx={cluster.cx}
-                    cy={cluster.cy}
-                    r={cluster.r}
-                    fill="none"
-                    stroke={tagColor[tag] || T3}
-                    strokeWidth={filterTag === tag ? 1.6 : 1}
-                    strokeOpacity={filterTag === tag ? 0.22 : 0.12}
-                    strokeDasharray={filterTag === tag ? '4 3' : '6 5'}
-                  />
-                </g>
-              ))}
-
+            >
               <defs>
                 <marker
                   id="arr"
@@ -544,167 +727,171 @@ export function GraphView({ papers, setPapers, tags = [] }) {
                 </marker>
               </defs>
 
-              {/* Citation edges */}
-              {filteredPapers.flatMap((p) =>
-                p.buildsOn.map((pid) => {
-                  const child = laidOut.find((n) => n.id === p.id);
-                  const parent = laidOut.find((n) => n.id === pid);
-                  if (!child || !parent) return null;
-                  const hl = hovered && connSet.has(p.id) && connSet.has(pid);
-                  const dim = hovered && !hl;
-                  const dx = parent.x - child.x,
-                    dy = parent.y - child.y;
-                  const d = Math.sqrt(dx * dx + dy * dy) || 1;
-                  const ux = dx / d,
-                    uy = dy / d;
-                  const x1 = child.x + ux * 20,
-                    y1 = child.y + uy * 20,
-                    x2 = parent.x - ux * 20,
-                    y2 = parent.y - uy * 20;
+              <g transform={`translate(${pan.x} ${pan.y}) scale(${zoom})`}>
+                {/* Citation edges */}
+                {filteredPapers.flatMap((p) =>
+                  p.buildsOn.map((pid) => {
+                    const child = laidOut.find((n) => n.id === p.id);
+                    const parent = laidOut.find((n) => n.id === pid);
+                    if (!child || !parent) return null;
+                    const hl = hovered && connSet.has(p.id) && connSet.has(pid);
+                    const dim = hovered && !hl;
+                    const dx = parent.x - child.x,
+                      dy = parent.y - child.y;
+                    const d = Math.sqrt(dx * dx + dy * dy) || 1;
+                    const ux = dx / d,
+                      uy = dy / d;
+                    const x1 = child.x + ux * 20,
+                      y1 = child.y + uy * 20,
+                      x2 = parent.x - ux * 20,
+                      y2 = parent.y - uy * 20;
+                    return (
+                      <EdgeGroup
+                        key={`${p.id}-${pid}`}
+                        x1={x1}
+                        y1={y1}
+                        x2={x2}
+                        y2={y2}
+                        hl={hl}
+                        dim={dim}
+                        onDelete={() =>
+                          setPapers((prev) =>
+                            prev.map((pp) =>
+                              pp.id === p.id
+                                ? { ...pp, buildsOn: pp.buildsOn.filter((b) => b !== pid) }
+                                : pp,
+                            ),
+                          )
+                        }
+                      />
+                    );
+                  }),
+                )}
+
+                {/* Edge drag preview */}
+                {edgeDragFrom && edgeDragMouse && (() => {
+                  const fromNode = laidOut.find((n) => n.id === edgeDragFrom);
+                  if (!fromNode) return null;
                   return (
-                    <EdgeGroup
-                      key={`${p.id}-${pid}`}
-                      x1={x1}
-                      y1={y1}
-                      x2={x2}
-                      y2={y2}
-                      hl={hl}
-                      dim={dim}
-                      onDelete={() =>
-                        setPapers((prev) =>
-                          prev.map((pp) =>
-                            pp.id === p.id
-                              ? { ...pp, buildsOn: pp.buildsOn.filter((b) => b !== pid) }
-                              : pp,
-                          ),
-                        )
-                      }
+                    <line
+                      x1={fromNode.x}
+                      y1={fromNode.y}
+                      x2={edgeDragMouse.x}
+                      y2={edgeDragMouse.y}
+                      stroke={LINK}
+                      strokeWidth={2}
+                      strokeDasharray="6 4"
+                      opacity={0.6}
                     />
                   );
-                }),
-              )}
+                })()}
 
-              {/* Edge drag preview */}
-              {edgeDragFrom && edgeDragMouse && (() => {
-                const fromNode = laidOut.find((n) => n.id === edgeDragFrom);
-                if (!fromNode) return null;
-                return (
-                  <line
-                    x1={fromNode.x}
-                    y1={fromNode.y}
-                    x2={edgeDragMouse.x}
-                    y2={edgeDragMouse.y}
-                    stroke={LINK}
-                    strokeWidth={2}
-                    strokeDasharray="6 4"
-                    opacity={0.6}
-                  />
-                );
-              })()}
-
-              {/* Paper nodes */}
-              {laidOut.map((n) => {
-                const isHov = hovered === n.id;
-                const isSel = selected === n.id;
-                const conn = connSet.has(n.id);
-                const dim = hovered && !isHov && !conn;
-                const pc = (n.tags && n.tags[0] && tagColor[n.tags[0]]) || LINK;
-                const isDropTarget =
-                  edgeDragFrom &&
-                  edgeDragFrom !== n.id &&
-                  edgeDragMouse &&
-                  Math.sqrt((n.x - edgeDragMouse.x) ** 2 + (n.y - edgeDragMouse.y) ** 2) < 30;
-                return (
-                  <g
-                    key={n.id}
-                    onMouseEnter={() => setHovered(n.id)}
-                    onMouseLeave={() => setHovered(null)}
-                    style={{ opacity: dim ? 0.1 : 1, transition: 'opacity 0.15s' }}
-                  >
-                    {(isHov || isDropTarget) && (
-                      <circle
-                        cx={n.x}
-                        cy={n.y}
-                        r={24}
-                        fill={isDropTarget ? LINK : pc}
-                        opacity={isDropTarget ? 0.2 : 0.08}
-                      />
-                    )}
-                    {isSel && (
-                      <circle
-                        cx={n.x}
-                        cy={n.y}
-                        r={22}
-                        fill="none"
-                        stroke={pc}
-                        strokeWidth={2}
-                        strokeDasharray="3 2"
-                      />
-                    )}
-                    <circle
-                      cx={n.x}
-                      cy={n.y}
-                      r={isHov || isDropTarget ? 18 : 16}
-                      fill={BG}
-                      stroke={isDropTarget ? LINK : pc}
-                      strokeWidth={isSel ? 2.5 : isDropTarget ? 2.5 : 1.5}
-                      onMouseDown={(e) => handleNodeDown(e, n.id)}
-                      onClick={() => setSelected(n.id === selected ? null : n.id)}
-                      style={{ cursor: 'grab' }}
-                    />
-                    <text
-                      x={n.x}
-                      y={n.y + 1}
-                      textAnchor="middle"
-                      dominantBaseline="middle"
-                      fontSize={10}
-                      fontWeight={700}
-                      fill={pc}
-                      fontFamily="Lato,sans-serif"
-                      style={{ pointerEvents: 'none' }}
+                {/* Paper nodes */}
+                {laidOut.map((n) => {
+                  const isHov = hovered === n.id;
+                  const isSel = selected === n.id;
+                  const conn = connSet.has(n.id);
+                  const hasHoveredTag = hoveredTag && n.tags?.includes(hoveredTag);
+                  const dim = hovered && !isHov && !conn;
+                  const pc = (n.tags && n.tags[0] && tagColor[n.tags[0]]) || LINK;
+                  const nodeStrokeColor = hasHoveredTag ? tagColor[hoveredTag] || LINK : pc;
+                  const isDropTarget =
+                    edgeDragFrom &&
+                    edgeDragFrom !== n.id &&
+                    edgeDragMouse &&
+                    Math.sqrt((n.x - edgeDragMouse.x) ** 2 + (n.y - edgeDragMouse.y) ** 2) < 30;
+                  return (
+                    <g
+                      key={n.id}
+                      onMouseEnter={() => setHovered(n.id)}
+                      onMouseLeave={() => setHovered(null)}
+                      style={{ opacity: dim ? 0.1 : 1, transition: 'opacity 0.15s' }}
                     >
-                      '{String(n.year || 2024).slice(-2)}
-                    </text>
-                    <text
-                      x={n.x}
-                      y={n.y + 30}
-                      textAnchor="middle"
-                      fontSize={10}
-                      fontWeight={isHov ? 700 : 400}
-                      fill={T1}
-                      fontFamily="Lato,sans-serif"
-                      style={{ pointerEvents: 'none', maxWidth: '40px' }}
-                    >
-                      {(n.title || 'Untitled').length > 28
-                        ? (n.title || 'Untitled').slice(0, 26) + '…'
-                        : n.title || 'Untitled'}
-                    </text>
-                    {n.tags &&
-                      n.tags.slice(0, 4).map((t, i) => (
+                      {(isHov || isDropTarget || hasHoveredTag) && (
                         <circle
-                          key={t}
-                          cx={n.x - (n.tags.slice(0, 4).length - 1) * 4 + i * 8}
-                          cy={n.y + 40}
-                          r={2.5}
-                          fill={tagColor[t] || T3}
-                          style={{ pointerEvents: 'none' }}
+                          cx={n.x}
+                          cy={n.y}
+                          r={24}
+                          fill={isDropTarget ? LINK : hasHoveredTag ? nodeStrokeColor : pc}
+                          opacity={isDropTarget ? 0.2 : hasHoveredTag ? 0.14 : 0.08}
                         />
-                      ))}
-                    {isHov && !edgeDragFrom && (
+                      )}
+                      {isSel && (
+                        <circle
+                          cx={n.x}
+                          cy={n.y}
+                          r={22}
+                          fill="none"
+                          stroke={pc}
+                          strokeWidth={2}
+                          strokeDasharray="3 2"
+                        />
+                      )}
                       <circle
                         cx={n.x}
-                        cy={n.y - 20}
-                        r={5}
-                        fill={LINK}
-                        stroke={BG}
-                        strokeWidth={1.5}
-                        onMouseDown={(e) => handleConnectorDown(e, n.id)}
-                        style={{ cursor: 'crosshair' }}
+                        cy={n.y}
+                        r={isHov || isDropTarget ? 18 : 16}
+                        fill={BG}
+                        stroke={isDropTarget ? LINK : nodeStrokeColor}
+                        strokeWidth={isSel ? 2.5 : isDropTarget || hasHoveredTag ? 2.5 : 1.5}
+                        onMouseDown={(e) => handleNodeDown(e, n.id)}
+                        onClick={() => setSelected(n.id === selected ? null : n.id)}
+                        style={{ cursor: 'grab' }}
                       />
-                    )}
-                  </g>
-                );
-              })}
+                      <text
+                        x={n.x}
+                        y={n.y + 1}
+                        textAnchor="middle"
+                        dominantBaseline="middle"
+                        fontSize={10}
+                        fontWeight={700}
+                        fill={hasHoveredTag ? nodeStrokeColor : pc}
+                        fontFamily="Lato,sans-serif"
+                        style={{ pointerEvents: 'none' }}
+                      >
+                        '{String(n.year || 2024).slice(-2)}
+                      </text>
+                      <text
+                        x={n.x}
+                        y={n.y + 30}
+                        textAnchor="middle"
+                        fontSize={10}
+                        fontWeight={isHov ? 700 : 400}
+                        fill={T1}
+                        fontFamily="Lato,sans-serif"
+                        style={{ pointerEvents: 'none', maxWidth: '40px' }}
+                      >
+                        {(n.title || 'Untitled').length > 28
+                          ? (n.title || 'Untitled').slice(0, 26) + '…'
+                          : n.title || 'Untitled'}
+                      </text>
+                      {n.tags &&
+                        n.tags.slice(0, 4).map((t, i) => (
+                          <circle
+                            key={t}
+                            cx={n.x - (n.tags.slice(0, 4).length - 1) * 4 + i * 8}
+                            cy={n.y + 40}
+                            r={2.5}
+                            fill={tagColor[t] || T3}
+                            style={{ pointerEvents: 'none' }}
+                          />
+                        ))}
+                      {isHov && !edgeDragFrom && (
+                        <circle
+                          cx={n.x}
+                          cy={n.y - 20}
+                          r={5}
+                          fill={LINK}
+                          stroke={BG}
+                          strokeWidth={1.5}
+                          onMouseDown={(e) => handleConnectorDown(e, n.id)}
+                          style={{ cursor: 'crosshair' }}
+                        />
+                      )}
+                    </g>
+                  );
+                })}
+              </g>
             </svg>
           </div>
 
@@ -757,6 +944,8 @@ export function GraphView({ papers, setPapers, tags = [] }) {
                         type="button"
                         className="tag"
                         onClick={() => removeTagFromPaper(selPaper.id, t)}
+                        onMouseEnter={() => setHoveredTag(t)}
+                        onMouseLeave={() => setHoveredTag(null)}
                         title={`Remove tag "${t}"`}
                         style={{
                           background: tagColor[t] || LINK,
@@ -828,6 +1017,8 @@ export function GraphView({ papers, setPapers, tags = [] }) {
                             type="button"
                             className="tag"
                             onClick={() => addTagToPaper(selPaper.id, tag)}
+                            onMouseEnter={() => setHoveredTag(tag)}
+                            onMouseLeave={() => setHoveredTag(null)}
                             style={{
                               background: tagColor[tag] || LINK,
                               border: 'none',
