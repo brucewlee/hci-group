@@ -26,6 +26,36 @@ const DRAG_BOUNDS = {
   maxY: H * 3,
 };
 
+function getStoredGraphPosition(paper) {
+  const x = paper?.graphPosition?.x;
+  const y = paper?.graphPosition?.y;
+
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    return null;
+  }
+
+  return { x, y };
+}
+
+function buildGraphLayout(papers) {
+  const generatedLayout = runLayout(papers);
+
+  return generatedLayout.map((node) => {
+    const storedPosition = getStoredGraphPosition(node);
+    if (!storedPosition) {
+      return node;
+    }
+
+    return {
+      ...node,
+      x: storedPosition.x,
+      y: storedPosition.y,
+      vx: 0,
+      vy: 0,
+    };
+  });
+}
+
 function runLayout(papers, iterations = 180) {
   const ns = papers.map((p) => ({
     ...p,
@@ -276,6 +306,7 @@ export function GraphView({ papers, setPapers, tags = [] }) {
   const [zoom, setZoom] = useState(1);
   const [isPanning, setIsPanning] = useState(false);
   const svgRef = useRef(null);
+  const laidOutRef = useRef([]);
   const dragOff = useRef({ x: 0, y: 0 });
   const panStartRef = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
   const prevPaperIds = useRef('');
@@ -288,15 +319,60 @@ export function GraphView({ papers, setPapers, tags = [] }) {
     .join('~');
 
   useEffect(() => {
+    laidOutRef.current = laidOut;
+  }, [laidOut]);
+
+  const persistGraphPositions = useCallback(
+    (nodes) => {
+      const positionsById = new Map(
+        nodes.map((node) => [node.id, { x: node.x, y: node.y }]),
+      );
+
+      setPapers((prev) => {
+        let changed = false;
+
+        const nextPapers = prev.map((paper) => {
+          const nextPosition = positionsById.get(paper.id);
+          if (!nextPosition) {
+            return paper;
+          }
+
+          const currentPosition = getStoredGraphPosition(paper);
+          if (
+            currentPosition &&
+            currentPosition.x === nextPosition.x &&
+            currentPosition.y === nextPosition.y
+          ) {
+            return paper;
+          }
+
+          changed = true;
+          return {
+            ...paper,
+            graphPosition: nextPosition,
+          };
+        });
+
+        return changed ? nextPapers : prev;
+      });
+    },
+    [setPapers],
+  );
+
+  useEffect(() => {
     if (filteredIds === prevPaperIds.current) return;
     prevPaperIds.current = filteredIds;
     if (filteredPapers.length === 0) {
       setLaidOut([]);
       return;
     }
-    setLaidOut(runLayout(filteredPapers));
+    const nextLayout = buildGraphLayout(filteredPapers);
+    setLaidOut(nextLayout);
+    if (filteredPapers.some((paper) => !getStoredGraphPosition(paper))) {
+      persistGraphPositions(nextLayout);
+    }
     setSelected(null);
-  }, [filteredIds, filteredPapers]);
+  }, [filteredIds, filteredPapers, persistGraphPositions]);
 
   useEffect(() => {
     setLaidOut((prev) => {
@@ -465,12 +541,15 @@ export function GraphView({ papers, setPapers, tags = [] }) {
           );
         }
       }
+      if (dragId) {
+        persistGraphPositions(laidOutRef.current);
+      }
       setDragId(null);
       setEdgeDragFrom(null);
       setEdgeDragMouse(null);
       setIsPanning(false);
     },
-    [edgeDragFrom, laidOut, pan, setPapers, zoom],
+    [dragId, edgeDragFrom, pan, persistGraphPositions, setPapers, zoom],
   );
 
   const updateZoom = useCallback((nextZoom, focusPoint = null) => {
