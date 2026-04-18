@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
+import { deletePaperFile, loadPaperFiles, savePaperFile } from '../utils/paperFiles.js';
 
 const PAPERS_KEY = 'linkly:papers';
 
@@ -15,11 +16,38 @@ export function usePaperStore() {
   // Save to localStorage whenever papers change
   useEffect(() => {
     try {
-      window.localStorage.setItem(PAPERS_KEY, JSON.stringify(papers));
+      const serializedPapers = papers.map(({ file, ...paper }) => ({
+        ...paper,
+        hasStoredFile: Boolean(file),
+      }));
+      window.localStorage.setItem(PAPERS_KEY, JSON.stringify(serializedPapers));
     } catch (err) {
       console.error('Failed to save papers:', err);
     }
   }, [papers]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    loadPaperFiles()
+      .then((filesById) => {
+        if (cancelled) return;
+
+        setPapers((current) =>
+          current.map((paper) => ({
+            ...paper,
+            file: filesById[paper.id] || paper.file || null,
+          })),
+        );
+      })
+      .catch((error) => {
+        console.error('Failed to load stored paper files:', error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const addPaper = useCallback((paper) => {
     const newPaper = {
@@ -38,6 +66,13 @@ export function usePaperStore() {
       ...paper,
     };
     setPapers((prev) => [newPaper, ...prev]);
+
+    if (newPaper.file) {
+      savePaperFile(newPaper.id, newPaper.file).catch((error) => {
+        console.error('Failed to persist paper file:', error);
+      });
+    }
+
     return newPaper;
   }, []);
 
@@ -45,10 +80,25 @@ export function usePaperStore() {
     setPapers((prev) =>
       prev.map((p) => (p.id === paperId ? { ...p, ...updates } : p))
     );
+
+    if (Object.prototype.hasOwnProperty.call(updates, 'file')) {
+      if (updates.file) {
+        savePaperFile(paperId, updates.file).catch((error) => {
+          console.error('Failed to persist updated paper file:', error);
+        });
+      } else {
+        deletePaperFile(paperId).catch((error) => {
+          console.error('Failed to remove stored paper file:', error);
+        });
+      }
+    }
   }, []);
 
   const deletePaper = useCallback((paperId) => {
     setPapers((prev) => prev.filter((p) => p.id !== paperId));
+    deletePaperFile(paperId).catch((error) => {
+      console.error('Failed to delete stored paper file:', error);
+    });
   }, []);
 
   const getPaper = useCallback(

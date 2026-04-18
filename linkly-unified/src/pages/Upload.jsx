@@ -2,6 +2,23 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Modal } from '../components/Modal.jsx';
 
+function parseArxivIdentifier(value) {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  try {
+    const url = new URL(trimmed);
+    if (!/arxiv\.org$/i.test(url.hostname)) {
+      return null;
+    }
+
+    const match = url.pathname.match(/^\/(?:abs|pdf)\/([^?#]+?)(?:\.pdf)?$/i);
+    return match ? match[1] : null;
+  } catch {
+    return null;
+  }
+}
+
 export function Upload({ addPaper }) {
   const [showModal, setShowModal] = useState(true);
   const [title, setTitle] = useState('');
@@ -15,6 +32,9 @@ export function Upload({ addPaper }) {
   const [fileData, setFileData] = useState(null);
 
   const navigate = useNavigate();
+  const arxivId = parseArxivIdentifier(arxiv);
+  const canSubmit = Boolean(title.trim() && fileData);
+  const hasPaperSource = Boolean(fileData);
 
   const blobToDataURL = (blob) =>
     new Promise((resolve, reject) => {
@@ -25,24 +45,20 @@ export function Upload({ addPaper }) {
     });
 
   const fetchArxivPdf = async (id) => {
-    const pdfUrls = [
-      `https://arxiv.org/pdf/${id}.pdf`,
-      `https://arxiv.org/pdf/${id}`,
-      `https://export.arxiv.org/pdf/${id}.pdf`,
-      `https://corsproxy.io/?${encodeURIComponent(`https://arxiv.org/pdf/${id}.pdf`)}`,
-    ];
-    for (const url of pdfUrls) {
-      try {
-        const res = await fetch(url);
-        if (!res.ok) continue;
-        const blob = await res.blob();
-        if (blob.type && !blob.type.includes('pdf') && blob.size < 1000) continue;
-        return await blobToDataURL(blob);
-      } catch {
-        // try next
-      }
+    const response = await fetch(`/api/arxiv-pdf/${id}.pdf`);
+    if (!response.ok) {
+      throw new Error(`Could not download the arXiv PDF (${response.status}).`);
     }
-    return null;
+
+    const blob = await response.blob();
+    const headerBuffer = await blob.slice(0, 5).arrayBuffer();
+    const header = new TextDecoder('ascii').decode(headerBuffer);
+
+    if (header !== '%PDF-') {
+      throw new Error('The arXiv response was not a PDF.');
+    }
+
+    return blobToDataURL(blob);
   };
 
   const fetchSemanticScholar = async (id) => {
@@ -97,9 +113,8 @@ export function Upload({ addPaper }) {
 
   const fetchArxivMeta = async () => {
     if (!arxiv.trim()) return;
-    const match = arxiv.match(/arxiv\.org\/(?:abs|pdf)\/(\d+\.\d+)/);
-    if (!match) return;
-    const id = match[1];
+    if (!arxivId) return;
+    const id = arxivId;
 
     setArxivLoading(true);
     try {
@@ -120,12 +135,7 @@ export function Upload({ addPaper }) {
       if (meta.authors) setAuthors(meta.authors);
       if (meta.abstract) setAbstract(meta.abstract);
       if (meta.year) setYear(meta.year);
-
-      if (pdfData) {
-        setFileData(pdfData);
-      } else {
-        console.warn('Could not fetch PDF from arXiv — please upload manually.');
-      }
+      if (pdfData) setFileData(pdfData);
     } catch (err) {
       console.error('arXiv fetch failed:', err);
     } finally {
@@ -146,7 +156,7 @@ export function Upload({ addPaper }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!title.trim() || !fileData) return;
+    if (!canSubmit) return;
 
     const paper = addPaper({
       title: title.trim(),
@@ -162,6 +172,7 @@ export function Upload({ addPaper }) {
       glossary: [],
       annotations: [],
       file: fileData,
+      source: arxivId ? 'arxiv' : 'upload',
     });
 
     navigate(`/paper/${paper.id}`);
@@ -192,7 +203,7 @@ export function Upload({ addPaper }) {
 
         <div className="form-group">
           <label className="form-label">
-            PDF File {fileData ? '✓' : '*'}
+            PDF File {hasPaperSource ? '✓' : ''}
           </label>
           <input
             type="file"
@@ -200,7 +211,7 @@ export function Upload({ addPaper }) {
             onChange={handleFileChange}
           />
           <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
-            Upload a PDF, or paste an arXiv link below and click Fetch to auto-load it.
+            Upload a PDF, or paste an arXiv link below and click Fetch to fill in the paper details.
           </div>
         </div>
 
@@ -221,8 +232,13 @@ export function Upload({ addPaper }) {
               onClick={fetchArxivMeta}
               disabled={arxivLoading || !arxiv.trim()}
             >
-              {arxivLoading ? 'Loading...' : 'Fetch'}
+              {arxivLoading ? 'Fetching paper...' : 'Fetch'}
             </button>
+          </div>
+          <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
+            {arxivId
+              ? 'Fetch downloads the arXiv PDF into browser storage so it behaves like an uploaded file.'
+              : 'Paste an arXiv abstract or PDF URL.'}
           </div>
         </div>
 
@@ -292,7 +308,7 @@ export function Upload({ addPaper }) {
           >
             Cancel
           </button>
-          <button type="submit" className="btn btn-primary" disabled={!title.trim() || !fileData}>
+          <button type="submit" className="btn btn-primary" disabled={!canSubmit}>
             Upload Paper
           </button>
         </div>

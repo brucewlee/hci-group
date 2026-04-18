@@ -13,6 +13,23 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import samplePaperUrl from '../assets/sample-paper.pdf?url';
 
+function parseArxivIdentifier(value) {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+
+  try {
+    const url = new URL(trimmed);
+    if (!/arxiv\.org$/i.test(url.hostname)) {
+      return null;
+    }
+
+    const match = url.pathname.match(/^\/(?:abs|pdf)\/([^?#]+?)(?:\.pdf)?$/i);
+    return match ? match[1] : null;
+  } catch {
+    return null;
+  }
+}
+
 if (!Promise.withResolvers) {
   Promise.withResolvers = function withResolvers() {
     let resolve;
@@ -136,7 +153,7 @@ function getTabButtonClass(isActive) {
   return isActive ? 'simple-tab is-active' : 'simple-tab';
 }
 
-export function PaperViewer({ paper, updatePaper }) {
+export function PaperViewer({ paper, updatePaper, availableTags = [] }) {
   const navigate = useNavigate();
   const { paperId } = useParams();
   const [activeTab, setActiveTab] = useState('glossary');
@@ -146,6 +163,8 @@ export function PaperViewer({ paper, updatePaper }) {
   const [selectionDraft, setSelectionDraft] = useState(null);
   const [termDraft, setTermDraft] = useState('');
   const [definitionDraft, setDefinitionDraft] = useState('');
+  const [paperTags, setPaperTags] = useState(paper?.tags || []);
+  const [tagDraft, setTagDraft] = useState('');
   const [glossaryEntries, setGlossaryEntries] = useState(paper?.glossary || []);
   const [annotations, setAnnotations] = useState(paper?.annotations || []);
   const [annotationsVisible, setAnnotationsVisible] = useState(true);
@@ -165,6 +184,8 @@ export function PaperViewer({ paper, updatePaper }) {
   const selectionTimeoutRef = useRef(null);
 
   useEffect(() => {
+    setPaperTags(paper?.tags || []);
+    setTagDraft('');
     setGlossaryEntries(paper?.glossary || []);
     setAnnotations(paper?.annotations || []);
     setSelectionDraft(null);
@@ -184,9 +205,9 @@ export function PaperViewer({ paper, updatePaper }) {
 
   useEffect(() => {
     if (paper && updatePaper) {
-      updatePaper(paperId, { glossary: glossaryEntries, annotations });
+      updatePaper(paperId, { tags: paperTags, glossary: glossaryEntries, annotations });
     }
-  }, [annotations, glossaryEntries, paper, paperId, updatePaper]);
+  }, [annotations, glossaryEntries, paper, paperId, paperTags, updatePaper]);
 
   useEffect(() => {
     return () => {
@@ -289,6 +310,30 @@ export function PaperViewer({ paper, updatePaper }) {
     setTermDraft('');
     setDefinitionDraft('');
   }
+
+  function addPaperTagValue(value) {
+    const nextTag = value.trim();
+    if (!nextTag) return;
+
+    setPaperTags((current) => {
+      const hasMatch = current.some((tag) => tag.toLowerCase() === nextTag.toLowerCase());
+      return hasMatch ? current : [...current, nextTag];
+    });
+    setTagDraft('');
+  }
+
+  function addPaperTag(event) {
+    event.preventDefault();
+    addPaperTagValue(tagDraft);
+  }
+
+  function removePaperTag(tagToRemove) {
+    setPaperTags((current) => current.filter((tag) => tag !== tagToRemove));
+  }
+
+  const selectableTags = availableTags.filter(
+    (tag) => !paperTags.some((paperTag) => paperTag.toLowerCase() === tag.toLowerCase()),
+  );
 
   function saveGlossaryEntry(event) {
     event.preventDefault();
@@ -499,7 +544,8 @@ export function PaperViewer({ paper, updatePaper }) {
   const sidebarClassName = sidebarCollapsed ? 'pdf-sidebar is-collapsed' : 'pdf-sidebar';
   const annotationToggleClassName = annotationMode ? 'primary-button' : 'secondary-button';
   const paperTitle = paper.title || 'Sample Academic Paper';
-  const pdfUrl = paper.file || samplePaperUrl;
+  const arxivId = parseArxivIdentifier(paper.arxiv || '');
+  const pdfUrl = paper.file || (arxivId ? `/api/arxiv-pdf/${arxivId}.pdf` : samplePaperUrl);
 
   return (
     <div className="page-wrapper" style={{ padding: 0 }}>
@@ -721,6 +767,13 @@ export function PaperViewer({ paper, updatePaper }) {
                   <FontAwesomeIcon icon={faChevronRight} />
                 </button>
                 <button
+                  className={getTabButtonClass(activeTab === 'tags')}
+                  type="button"
+                  onClick={() => setActiveTab('tags')}
+                >
+                  Tags
+                </button>
+                <button
                   className={getTabButtonClass(activeTab === 'glossary')}
                   type="button"
                   onClick={() => setActiveTab('glossary')}
@@ -737,6 +790,83 @@ export function PaperViewer({ paper, updatePaper }) {
               </div>
 
               <div className="sidebar-panel">
+                {activeTab === 'tags' ? (
+                  <div className="tags-tab-layout">
+                    <article className="reader-card paper-tags-card">
+                      <div className="paper-tags-header">
+                        <h3>Tags</h3>
+                        <span>{paperTags.length}</span>
+                      </div>
+                      {paperTags.length ? (
+                        <div className="paper-tags-list">
+                          {paperTags.map((tag) => (
+                            <button
+                              key={tag}
+                              type="button"
+                              className="paper-tag-chip"
+                              onClick={() => removePaperTag(tag)}
+                              title={`Remove tag "${tag}"`}
+                            >
+                              {tag} ×
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="empty-state">No tags yet. Add one below.</p>
+                      )}
+                    </article>
+
+                    <article className="reader-card paper-tags-card">
+                      <h3>Add tag</h3>
+                      <form className="stack-form" onSubmit={addPaperTag}>
+                        <div className="paper-tag-form">
+                          <input
+                            className="text-input"
+                            type="text"
+                            list="paper-view-tag-options"
+                            value={tagDraft}
+                            onChange={(event) => setTagDraft(event.target.value)}
+                            placeholder="Add a tag"
+                          />
+                          <datalist id="paper-view-tag-options">
+                            {selectableTags.map((tag) => (
+                              <option key={tag} value={tag} />
+                            ))}
+                          </datalist>
+                          <button
+                            className="secondary-button"
+                            type="submit"
+                            disabled={!tagDraft.trim()}
+                          >
+                            Add
+                          </button>
+                        </div>
+                      </form>
+                      {selectableTags.length ? (
+                        <>
+                          <p className="reader-subtitle">
+                            Add from existing tags in your library.
+                          </p>
+                          <div className="paper-tags-list">
+                            {selectableTags.map((tag) => (
+                              <button
+                                key={`available-${tag}`}
+                                type="button"
+                                className="paper-tag-chip paper-tag-chip-add"
+                                onClick={() => addPaperTagValue(tag)}
+                              >
+                                + {tag}
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      ) : (
+                        <p className="empty-state">No other tags available yet.</p>
+                      )}
+                    </article>
+                  </div>
+                ) : null}
+
                 {activeTab === 'glossary' ? (
                   <div className="glossary-tab-layout">
                     <article className="reader-card glossary-composer-card">

@@ -479,7 +479,7 @@ html, body {
 
 .sidebar-tabs {
   display: grid;
-  grid-template-columns: auto repeat(2, 1fr);
+  grid-template-columns: auto repeat(3, 1fr);
   gap: 8px;
   position: sticky;
   top: 0;
@@ -527,6 +527,57 @@ html, body {
 
 .reader-card h3 {
   margin: 0;
+}
+
+.paper-tags-card {
+  gap: 10px;
+}
+
+.paper-tags-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.paper-tags-header span {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.paper-tags-list {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.paper-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid rgba(26, 115, 232, 0.16);
+  border-radius: 999px;
+  background: rgba(26, 115, 232, 0.08);
+  color: var(--color-primary);
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.paper-tag-chip-add {
+  background: var(--color-bg);
+}
+
+.paper-tag-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.tags-tab-layout {
+  display: grid;
+  gap: 10px;
 }
 
 .reader-subtitle {
@@ -991,6 +1042,10 @@ html, body {
   .pdf-workbench,
   .pdf-workbench.sidebar-collapsed {
     grid-template-columns: 1fr;
+  }
+
+  .sidebar-tabs {
+    grid-template-columns: auto repeat(3, 1fr);
   }
 
   .pdf-page-layout {
