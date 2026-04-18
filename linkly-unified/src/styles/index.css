@@ -478,7 +478,7 @@ html, body {
 
 .sidebar-tabs {
   display: grid;
-  grid-template-columns: auto repeat(3, 1fr);
+  grid-template-columns: auto repeat(4, 1fr);
   gap: 8px;
   position: sticky;
   top: 0;
@@ -1153,7 +1153,7 @@ html, body {
   }
 
   .sidebar-tabs {
-    grid-template-columns: auto repeat(3, 1fr);
+    grid-template-columns: auto repeat(4, 1fr);
   }
 
   .glossary-definitions-card {

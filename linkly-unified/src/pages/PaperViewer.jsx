@@ -1029,13 +1029,6 @@ export function PaperViewer({ paper, papers = [], updatePaper, availableTags = [
             </div>
           ) : (
             <>
-              <MiniGraphPreview
-                paper={paper}
-                papers={papers}
-                onOpenPaper={(nextPaperId) => navigate(`/paper/${nextPaperId}`)}
-                onOpenGraph={() => navigate('/graph')}
-              />
-
               <div className="sidebar-tabs" role="tablist" aria-label="Reader panels">
                 <button
                   className="icon-button sidebar-collapse-button"
@@ -1051,6 +1044,13 @@ export function PaperViewer({ paper, papers = [], updatePaper, availableTags = [
                   onClick={() => setActiveTab('tags')}
                 >
                   Tags
+                </button>
+                <button
+                  className={getTabButtonClass(activeTab === 'graph')}
+                  type="button"
+                  onClick={() => setActiveTab('graph')}
+                >
+                  Graph
                 </button>
                 <button
                   className={getTabButtonClass(activeTab === 'glossary')}
@@ -1069,6 +1069,15 @@ export function PaperViewer({ paper, papers = [], updatePaper, availableTags = [
               </div>
 
               <div className="sidebar-panel">
+                {activeTab === 'graph' ? (
+                  <MiniGraphPreview
+                    paper={paper}
+                    papers={papers}
+                    onOpenPaper={(nextPaperId) => navigate(`/paper/${nextPaperId}`)}
+                    onOpenGraph={() => navigate('/graph')}
+                  />
+                ) : null}
+
                 {activeTab === 'tags' ? (
                   <div className="tags-tab-layout">
                     <article className="reader-card paper-tags-card">
