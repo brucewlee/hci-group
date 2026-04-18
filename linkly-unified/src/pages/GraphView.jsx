@@ -529,6 +529,60 @@ export function GraphView({ papers, setPapers, tags = [] }) {
     return s;
   }, [hovered, filteredPapers]);
 
+  const hoveredTagNodeIds = useMemo(() => {
+    if (!hoveredTag) return new Set();
+
+    return new Set(
+      laidOut
+        .filter((node) => node.tags?.includes(hoveredTag))
+        .map((node) => node.id),
+    );
+  }, [hoveredTag, laidOut]);
+
+  const hoveredTagGuideEdges = useMemo(() => {
+    if (!hoveredTag) return [];
+
+    const nodes = laidOut.filter((node) => node.tags?.includes(hoveredTag));
+    if (nodes.length < 2) return [];
+
+    const visited = new Set([nodes[0].id]);
+    const guides = [];
+
+    while (visited.size < nodes.length) {
+      let bestEdge = null;
+
+      nodes.forEach((fromNode) => {
+        if (!visited.has(fromNode.id)) return;
+
+        nodes.forEach((toNode) => {
+          if (visited.has(toNode.id)) return;
+
+          const dx = toNode.x - fromNode.x;
+          const dy = toNode.y - fromNode.y;
+          const distance = Math.sqrt(dx * dx + dy * dy) || 1;
+
+          if (!bestEdge || distance < bestEdge.distance) {
+            bestEdge = {
+              fromId: fromNode.id,
+              toId: toNode.id,
+              x1: fromNode.x,
+              y1: fromNode.y,
+              x2: toNode.x,
+              y2: toNode.y,
+              distance,
+            };
+          }
+        });
+      });
+
+      if (!bestEdge) break;
+      visited.add(bestEdge.toId);
+      guides.push(bestEdge);
+    }
+
+    return guides;
+  }, [hoveredTag, laidOut]);
+
   const selPaper = selected ? papers.find((p) => p.id === selected) : null;
   const hovPaper = hovered ? papers.find((p) => p.id === hovered) : null;
   const hovNode = hovered ? laidOut.find((n) => n.id === hovered) : null;
@@ -728,6 +782,30 @@ export function GraphView({ papers, setPapers, tags = [] }) {
               </defs>
 
               <g transform={`translate(${pan.x} ${pan.y}) scale(${zoom})`}>
+                {hoveredTagGuideEdges.map((edge) => (
+                  <g key={`tag-guide-${edge.fromId}-${edge.toId}`} style={{ pointerEvents: 'none' }}>
+                    <line
+                      x1={edge.x1}
+                      y1={edge.y1}
+                      x2={edge.x2}
+                      y2={edge.y2}
+                      stroke={tagColor[hoveredTag] || LINK}
+                      strokeWidth={3}
+                      strokeOpacity={0.12}
+                    />
+                    <line
+                      x1={edge.x1}
+                      y1={edge.y1}
+                      x2={edge.x2}
+                      y2={edge.y2}
+                      stroke={tagColor[hoveredTag] || LINK}
+                      strokeWidth={1.5}
+                      strokeDasharray="6 5"
+                      strokeOpacity={0.75}
+                    />
+                  </g>
+                ))}
+
                 {/* Citation edges */}
                 {filteredPapers.flatMap((p) =>
                   p.buildsOn.map((pid) => {
@@ -735,7 +813,13 @@ export function GraphView({ papers, setPapers, tags = [] }) {
                     const parent = laidOut.find((n) => n.id === pid);
                     if (!child || !parent) return null;
                     const hl = hovered && connSet.has(p.id) && connSet.has(pid);
-                    const dim = hovered && !hl;
+                    const tagMatch =
+                      hoveredTag &&
+                      hoveredTagNodeIds.has(p.id) &&
+                      hoveredTagNodeIds.has(pid);
+                    const dim =
+                      (hovered && !hl) ||
+                      (hoveredTag && !tagMatch && !hl);
                     const dx = parent.x - child.x,
                       dy = parent.y - child.y;
                     const d = Math.sqrt(dx * dx + dy * dy) || 1;
@@ -752,7 +836,7 @@ export function GraphView({ papers, setPapers, tags = [] }) {
                         y1={y1}
                         x2={x2}
                         y2={y2}
-                        hl={hl}
+                        hl={hl || tagMatch}
                         dim={dim}
                         onDelete={() =>
                           setPapers((prev) =>
@@ -792,7 +876,9 @@ export function GraphView({ papers, setPapers, tags = [] }) {
                   const isSel = selected === n.id;
                   const conn = connSet.has(n.id);
                   const hasHoveredTag = hoveredTag && n.tags?.includes(hoveredTag);
-                  const dim = hovered && !isHov && !conn;
+                  const dim =
+                    (hovered && !isHov && !conn) ||
+                    (hoveredTag && !hasHoveredTag);
                   const pc = (n.tags && n.tags[0] && tagColor[n.tags[0]]) || LINK;
                   const nodeStrokeColor = hasHoveredTag ? tagColor[hoveredTag] || LINK : pc;
                   const isDropTarget =
