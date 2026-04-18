@@ -9,6 +9,7 @@ const T2 = '#5f6368';
 const T3 = '#9aa0a6';
 const LINK = '#1a73e8';
 const GREEN = '#1e8e3e';
+const NODE_DEFAULT = '#6b7280';
 const TAG_COLORS = [
   '#1a73e8', '#9334e6', '#e8710a', '#0d652d', '#c5221f', '#185abc', '#7627bb', '#b06000', '#0b8043', '#a50e0e',
 ];
@@ -123,6 +124,17 @@ function clientToSvgPoint(svg, clientX, clientY) {
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
+}
+
+function getTagColor(tag) {
+  if (!tag) return LINK;
+
+  let hash = 0;
+  for (let index = 0; index < tag.length; index += 1) {
+    hash = (hash * 31 + tag.charCodeAt(index)) >>> 0;
+  }
+
+  return TAG_COLORS[hash % TAG_COLORS.length];
 }
 
 function svgPointToGraphPoint(point, pan, zoom) {
@@ -310,13 +322,11 @@ export function GraphView({ papers, setPapers, tags = [] }) {
     });
   }, [filteredMetadataKey]);
 
-  const tagColor = useMemo(() => {
-    const m = {};
-    tags.forEach((t, i) => {
-      m[t] = TAG_COLORS[i % TAG_COLORS.length];
-    });
-    return m;
-  }, [tags]);
+  const tagColor = useMemo(
+    () =>
+      Object.fromEntries(tags.map((tag) => [tag, getTagColor(tag)])),
+    [tags],
+  );
 
   const tagRegions = useMemo(
     () =>
@@ -876,11 +886,20 @@ export function GraphView({ papers, setPapers, tags = [] }) {
                   const isSel = selected === n.id;
                   const conn = connSet.has(n.id);
                   const hasHoveredTag = hoveredTag && n.tags?.includes(hoveredTag);
+                  const primaryTagColor = n.tags?.[0] ? getTagColor(n.tags[0]) : LINK;
                   const dim =
                     (hovered && !isHov && !conn) ||
                     (hoveredTag && !hasHoveredTag);
-                  const pc = (n.tags && n.tags[0] && tagColor[n.tags[0]]) || LINK;
-                  const nodeStrokeColor = hasHoveredTag ? tagColor[hoveredTag] || LINK : pc;
+                  const nodeStrokeColor = hasHoveredTag
+                    ? getTagColor(hoveredTag)
+                    : isHov
+                      ? primaryTagColor
+                      : NODE_DEFAULT;
+                  const nodeAccentColor = hasHoveredTag
+                    ? getTagColor(hoveredTag)
+                    : isHov
+                      ? primaryTagColor
+                      : NODE_DEFAULT;
                   const isDropTarget =
                     edgeDragFrom &&
                     edgeDragFrom !== n.id &&
@@ -898,20 +917,20 @@ export function GraphView({ papers, setPapers, tags = [] }) {
                           cx={n.x}
                           cy={n.y}
                           r={24}
-                          fill={isDropTarget ? LINK : hasHoveredTag ? nodeStrokeColor : pc}
+                          fill={isDropTarget ? LINK : nodeAccentColor}
                           opacity={isDropTarget ? 0.2 : hasHoveredTag ? 0.14 : 0.08}
                         />
                       )}
                       {isSel && (
                         <circle
-                          cx={n.x}
-                          cy={n.y}
-                          r={22}
-                          fill="none"
-                          stroke={pc}
-                          strokeWidth={2}
-                          strokeDasharray="3 2"
-                        />
+                        cx={n.x}
+                        cy={n.y}
+                        r={22}
+                        fill="none"
+                        stroke={nodeStrokeColor}
+                        strokeWidth={2}
+                        strokeDasharray="3 2"
+                      />
                       )}
                       <circle
                         cx={n.x}
@@ -931,7 +950,7 @@ export function GraphView({ papers, setPapers, tags = [] }) {
                         dominantBaseline="middle"
                         fontSize={10}
                         fontWeight={700}
-                        fill={hasHoveredTag ? nodeStrokeColor : pc}
+                        fill={nodeStrokeColor}
                         fontFamily="Lato,sans-serif"
                         style={{ pointerEvents: 'none' }}
                       >
@@ -954,14 +973,14 @@ export function GraphView({ papers, setPapers, tags = [] }) {
                       {n.tags &&
                         n.tags.slice(0, 4).map((t, i) => (
                           <circle
-                            key={t}
-                            cx={n.x - (n.tags.slice(0, 4).length - 1) * 4 + i * 8}
-                            cy={n.y + 40}
-                            r={2.5}
-                            fill={tagColor[t] || T3}
-                            style={{ pointerEvents: 'none' }}
-                          />
-                        ))}
+                          key={t}
+                          cx={n.x - (n.tags.slice(0, 4).length - 1) * 4 + i * 8}
+                          cy={n.y + 40}
+                          r={2.5}
+                          fill={getTagColor(t)}
+                          style={{ pointerEvents: 'none' }}
+                        />
+                      ))}
                       {isHov && !edgeDragFrom && (
                         <circle
                           cx={n.x}
