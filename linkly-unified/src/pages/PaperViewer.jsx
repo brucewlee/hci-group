@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Document, Page, pdfjs } from 'react-pdf';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
@@ -426,6 +426,7 @@ function MiniGraphPreview({ paper, papers, onOpenPaper, onOpenGraph }) {
 }
 
 export function PaperViewer({ paper, papers = [], updatePaper, availableTags = [] }) {
+  const location = useLocation();
   const navigate = useNavigate();
   const { paperId } = useParams();
   const [activeTab, setActiveTab] = useState('glossary');
@@ -472,8 +473,8 @@ export function PaperViewer({ paper, papers = [], updatePaper, availableTags = [
     setEditingAnnotationId(null);
     setEditingAnnotationComment('');
     setSidebarCollapsed(false);
-    setActiveTab('glossary');
-  }, [paper?.id]);
+    setActiveTab(location.state?.activeTab || 'glossary');
+  }, [location.state, paper?.id]);
 
   useEffect(() => {
     if (paper && updatePaper) {
@@ -1073,7 +1074,9 @@ export function PaperViewer({ paper, papers = [], updatePaper, availableTags = [
                   <MiniGraphPreview
                     paper={paper}
                     papers={papers}
-                    onOpenPaper={(nextPaperId) => navigate(`/paper/${nextPaperId}`)}
+                    onOpenPaper={(nextPaperId) =>
+                      navigate(`/paper/${nextPaperId}`, { state: { activeTab: 'graph' } })
+                    }
                     onOpenGraph={() => navigate('/graph')}
                   />
                 ) : null}
