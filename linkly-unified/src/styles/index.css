@@ -467,7 +467,7 @@ html, body {
 
 .pdf-sidebar {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 12px;
   max-height: 82vh;
   overflow: hidden;
@@ -527,6 +527,103 @@ html, body {
 
 .reader-card h3 {
   margin: 0;
+}
+
+.mini-graph-card {
+  gap: 10px;
+}
+
+.mini-graph-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mini-graph-open-button {
+  flex-shrink: 0;
+}
+
+.mini-graph-shell {
+  border: 1px solid rgba(26, 115, 232, 0.14);
+  border-radius: 10px;
+  padding: 10px;
+  background:
+    radial-gradient(circle at top, rgba(26, 115, 232, 0.06), transparent 58%),
+    linear-gradient(180deg, rgba(248, 249, 250, 0.95), rgba(255, 255, 255, 0.98));
+}
+
+.mini-graph-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.mini-graph-edge {
+  stroke: rgba(95, 99, 104, 0.45);
+  stroke-width: 1.5;
+}
+
+.mini-graph-node {
+  cursor: pointer;
+  outline: none;
+}
+
+.mini-graph-node:focus {
+  outline: none;
+}
+
+.mini-graph-node:focus-visible {
+  outline: none;
+}
+
+.mini-graph-hit-area {
+  fill: transparent;
+}
+
+.mini-graph-node-dot {
+  fill: var(--color-bg);
+  stroke: #6b7280;
+  stroke-width: 1.75;
+  vector-effect: non-scaling-stroke;
+}
+
+.mini-graph-node-year {
+  fill: #6b7280;
+  font-size: 6px;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.mini-graph-node-label {
+  fill: var(--color-text-primary);
+  font-size: 7px;
+  font-weight: 500;
+  pointer-events: none;
+  stroke: #ffffff;
+  stroke-width: 2.5;
+  paint-order: stroke;
+}
+
+.mini-graph-node:hover .mini-graph-node-dot,
+.mini-graph-node:focus-visible .mini-graph-node-dot {
+  stroke: var(--color-primary);
+}
+
+.mini-graph-node.is-current .mini-graph-node-dot {
+  stroke: var(--color-primary);
+  stroke-width: 2.25;
+}
+
+.mini-graph-node.is-current .mini-graph-node-year {
+  fill: var(--color-primary);
+}
+
+.mini-graph-summary {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .paper-tags-card {

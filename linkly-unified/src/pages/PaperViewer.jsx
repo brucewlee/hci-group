@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Document, Page, pdfjs } from 'react-pdf';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -153,7 +153,279 @@ function getTabButtonClass(isActive) {
   return isActive ? 'simple-tab is-active' : 'simple-tab';
 }
 
-export function PaperViewer({ paper, updatePaper, availableTags = [] }) {
+const MINI_GRAPH_WIDTH = 228;
+const MINI_GRAPH_HEIGHT = 196;
+const MINI_LAYOUT_WIDTH = 720;
+const MINI_LAYOUT_HEIGHT = 460;
+const MINI_LAYOUT_MARGIN = 58;
+const MINI_NODE_RADIUS = 10;
+
+function hashString(value) {
+  let hash = 2166136261;
+
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  return hash >>> 0;
+}
+
+function runMiniGraphLayout(papers, iterations = 150) {
+  if (!papers.length) {
+    return [];
+  }
+
+  const nodes = papers.map((entry, index) => {
+    const hash = hashString(entry.id || `${entry.title || 'paper'}-${index}`);
+    const angle = (hash % 360) * (Math.PI / 180);
+    const radius = 120 + (hash % 120);
+
+    return {
+      ...entry,
+      buildsOn: entry.buildsOn || [],
+      x: MINI_LAYOUT_WIDTH / 2 + Math.cos(angle) * radius,
+      y: MINI_LAYOUT_HEIGHT / 2 + Math.sin(angle) * (radius * 0.62),
+      vx: 0,
+      vy: 0,
+    };
+  });
+
+  const nodeMap = Object.fromEntries(nodes.map((node) => [node.id, node]));
+
+  for (let step = 0; step < iterations; step += 1) {
+    const decay = 1 - step / iterations;
+
+    for (let leftIndex = 0; leftIndex < nodes.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < nodes.length; rightIndex += 1) {
+        const leftNode = nodes[leftIndex];
+        const rightNode = nodes[rightIndex];
+        const dx = rightNode.x - leftNode.x;
+        const dy = rightNode.y - leftNode.y;
+        const distance = Math.sqrt(dx * dx + dy * dy) || 1;
+        const force = (2800 * decay) / (distance * distance);
+
+        leftNode.vx -= (force * dx) / distance;
+        leftNode.vy -= (force * dy) / distance;
+        rightNode.vx += (force * dx) / distance;
+        rightNode.vy += (force * dy) / distance;
+      }
+
+      nodes[leftIndex].buildsOn.forEach((targetId) => {
+        const targetNode = nodeMap[targetId];
+        if (!targetNode) {
+          return;
+        }
+
+        const dx = targetNode.x - nodes[leftIndex].x;
+        const dy = targetNode.y - nodes[leftIndex].y;
+        const distance = Math.sqrt(dx * dx + dy * dy) || 1;
+        const force = (0.55 * decay * distance) / 92;
+
+        nodes[leftIndex].vx += (force * dx) / distance;
+        nodes[leftIndex].vy += (force * dy) / distance;
+        targetNode.vx -= (force * dx) / distance;
+        targetNode.vy -= (force * dy) / distance;
+      });
+    }
+
+    nodes.forEach((node) => {
+      node.vx *= 1 - 0.07 * decay;
+      node.vy *= 1 - 0.07 * decay;
+      node.x += node.vx;
+      node.y += node.vy;
+      node.x = clamp(node.x, MINI_LAYOUT_MARGIN, MINI_LAYOUT_WIDTH - MINI_LAYOUT_MARGIN);
+      node.y = clamp(node.y, MINI_LAYOUT_MARGIN, MINI_LAYOUT_HEIGHT - MINI_LAYOUT_MARGIN);
+    });
+  }
+
+  return nodes;
+}
+
+function fitMiniGraphNodes(nodes) {
+  if (!nodes.length) {
+    return [];
+  }
+
+  const minX = Math.min(...nodes.map((node) => node.x));
+  const maxX = Math.max(...nodes.map((node) => node.x));
+  const minY = Math.min(...nodes.map((node) => node.y));
+  const maxY = Math.max(...nodes.map((node) => node.y));
+  const contentWidth = Math.max(1, maxX - minX);
+  const contentHeight = Math.max(1, maxY - minY);
+  const paddingX = 18;
+  const paddingTop = 16;
+  const paddingBottom = 36;
+  const scale = Math.min(
+    (MINI_GRAPH_WIDTH - paddingX * 2) / contentWidth,
+    (MINI_GRAPH_HEIGHT - paddingTop - paddingBottom) / contentHeight,
+  );
+
+  return nodes.map((node) => ({
+    ...node,
+    x: paddingX + (node.x - minX) * scale,
+    y: paddingTop + (node.y - minY) * scale,
+  }));
+}
+
+function truncateMiniGraphTitle(title) {
+  const normalizedTitle = title || 'Untitled';
+  return normalizedTitle.length > 22 ? `${normalizedTitle.slice(0, 20)}…` : normalizedTitle;
+}
+
+function buildMiniGraphData(currentPaper, papers) {
+  if (!currentPaper) {
+    return null;
+  }
+
+  const laidOutNodes = fitMiniGraphNodes(runMiniGraphLayout(papers));
+  const nodeMap = new Map(laidOutNodes.map((node) => [node.id, node]));
+  const edges = [];
+
+  papers.forEach((sourcePaper) => {
+    (sourcePaper.buildsOn || []).forEach((targetId) => {
+      const fromNode = nodeMap.get(sourcePaper.id);
+      const toNode = nodeMap.get(targetId);
+
+      if (!fromNode || !toNode) {
+        return;
+      }
+
+      edges.push({
+        id: `${sourcePaper.id}-${targetId}`,
+        from: sourcePaper.id,
+        to: targetId,
+      });
+    });
+  });
+
+  return {
+    nodes: laidOutNodes.map((node) => ({
+      id: node.id,
+      title: node.title || 'Untitled',
+      year: node.year,
+      x: node.x,
+      y: node.y,
+      isCurrent: node.id === currentPaper.id,
+      hasConnections:
+        (node.buildsOn || []).length > 0 ||
+        papers.some((paper) => (paper.buildsOn || []).includes(node.id)),
+    })),
+    edges,
+    totalCount: laidOutNodes.length,
+  };
+}
+
+function MiniGraphPreview({ paper, papers, onOpenPaper, onOpenGraph }) {
+  const graphData = useMemo(() => buildMiniGraphData(paper, papers), [paper, papers]);
+
+  if (!paper || !graphData) {
+    return null;
+  }
+
+  const nodeMap = new Map(graphData.nodes.map((node) => [node.id, node]));
+
+  function handleNodeKeyDown(event, nodeId) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      event.stopPropagation();
+      onOpenPaper(nodeId);
+    }
+  }
+
+  return (
+    <article className="reader-card mini-graph-card">
+      <div className="mini-graph-header">
+        <div>
+          <h3>Graph</h3>
+          <p className="reader-subtitle">
+            {graphData.totalCount
+              ? `${graphData.totalCount} paper${graphData.totalCount === 1 ? '' : 's'} in your graph`
+              : 'No papers in the graph yet'}
+          </p>
+        </div>
+        <button
+          className="secondary-button mini-graph-open-button"
+          type="button"
+          onClick={onOpenGraph}
+        >
+          Open graph
+        </button>
+      </div>
+
+      <div className="mini-graph-shell" aria-label="Miniature paper graph preview">
+        <svg
+          className="mini-graph-svg"
+          viewBox={`0 0 ${MINI_GRAPH_WIDTH} ${MINI_GRAPH_HEIGHT}`}
+          aria-hidden="true"
+        >
+          {graphData.edges.map((edge) => {
+            const fromNode = nodeMap.get(edge.from);
+            const toNode = nodeMap.get(edge.to);
+            if (!fromNode || !toNode) {
+              return null;
+            }
+
+            return (
+              <line
+                key={edge.id}
+                x1={fromNode.x}
+                y1={fromNode.y}
+                x2={toNode.x}
+                y2={toNode.y}
+                className="mini-graph-edge"
+              />
+            );
+          })}
+
+          {graphData.nodes.map((node) => (
+            <g
+              key={node.id}
+              className={node.isCurrent ? 'mini-graph-node is-current' : 'mini-graph-node'}
+              role="button"
+              tabIndex={0}
+              onMouseDown={(event) => {
+                event.preventDefault();
+              }}
+              onClick={(event) => {
+                event.stopPropagation();
+                onOpenPaper(node.id);
+              }}
+              onKeyDown={(event) => handleNodeKeyDown(event, node.id)}
+            >
+              <title>{node.isCurrent ? `${node.title} (current paper)` : node.title}</title>
+              <circle cx={node.x} cy={node.y + 11} r={24} className="mini-graph-hit-area" />
+              <circle cx={node.x} cy={node.y} r={MINI_NODE_RADIUS} className="mini-graph-node-dot" />
+              <text
+                x={node.x}
+                y={node.y + 1}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                className="mini-graph-node-year"
+              >
+                '{String(node.year || 2024).slice(-2)}
+              </text>
+              <text
+                x={node.x}
+                y={node.y + 24}
+                textAnchor="middle"
+                className="mini-graph-node-label"
+              >
+                {truncateMiniGraphTitle(node.title)}
+              </text>
+            </g>
+          ))}
+        </svg>
+      </div>
+
+      <p className="mini-graph-summary">
+        This is a mini version of the full graph. Click a node to open that paper.
+      </p>
+    </article>
+  );
+}
+
+export function PaperViewer({ paper, papers = [], updatePaper, availableTags = [] }) {
   const navigate = useNavigate();
   const { paperId } = useParams();
   const [activeTab, setActiveTab] = useState('glossary');
@@ -757,6 +1029,13 @@ export function PaperViewer({ paper, updatePaper, availableTags = [] }) {
             </div>
           ) : (
             <>
+              <MiniGraphPreview
+                paper={paper}
+                papers={papers}
+                onOpenPaper={(nextPaperId) => navigate(`/paper/${nextPaperId}`)}
+                onOpenGraph={() => navigate('/graph')}
+              />
+
               <div className="sidebar-tabs" role="tablist" aria-label="Reader panels">
                 <button
                   className="icon-button sidebar-collapse-button"
