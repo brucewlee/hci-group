@@ -318,12 +318,101 @@ function buildMiniGraphData(currentPaper, papers) {
 
 function MiniGraphPreview({ paper, papers, onOpenPaper, onOpenGraph }) {
   const graphData = useMemo(() => buildMiniGraphData(paper, papers), [paper, papers]);
+  const svgRef = useRef(null);
+  const [nodePositions, setNodePositions] = useState({});
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const dragState = useRef(null);
+
+  useEffect(() => {
+    if (!graphData) return;
+    setNodePositions((prev) => {
+      const next = {};
+      for (const node of graphData.nodes) {
+        next[node.id] = prev[node.id] || { x: node.x, y: node.y };
+      }
+      return next;
+    });
+  }, [graphData]);
 
   if (!paper || !graphData) {
     return null;
   }
 
+  const getPos = (node) => nodePositions[node.id] || { x: node.x, y: node.y };
   const nodeMap = new Map(graphData.nodes.map((node) => [node.id, node]));
+
+  function svgPointFromEvent(event) {
+    const svg = svgRef.current;
+    if (!svg) return { x: 0, y: 0 };
+    const rect = svg.getBoundingClientRect();
+    const scaleX = MINI_GRAPH_WIDTH / rect.width;
+    const scaleY = MINI_GRAPH_HEIGHT / rect.height;
+    return {
+      x: (event.clientX - rect.left) * scaleX,
+      y: (event.clientY - rect.top) * scaleY,
+    };
+  }
+
+  function handlePointerDown(event, nodeId) {
+    event.preventDefault();
+    event.stopPropagation();
+    const point = svgPointFromEvent(event);
+    const current = nodePositions[nodeId] || nodeMap.get(nodeId);
+    dragState.current = {
+      type: 'node',
+      nodeId,
+      offsetX: point.x - current.x,
+      offsetY: point.y - current.y,
+      moved: false,
+      startX: event.clientX,
+      startY: event.clientY,
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  }
+
+  function handleBackgroundPointerDown(event) {
+    if (event.target.closest('[data-node-id]')) return;
+    event.preventDefault();
+    dragState.current = {
+      type: 'pan',
+      startX: event.clientX,
+      startY: event.clientY,
+      panStart: { ...pan },
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  }
+
+  function handlePointerMove(event) {
+    const state = dragState.current;
+    if (!state) return;
+    if (state.type === 'node') {
+      const point = svgPointFromEvent(event);
+      const nx = point.x - state.offsetX;
+      const ny = point.y - state.offsetY;
+      if (Math.abs(event.clientX - state.startX) > 2 || Math.abs(event.clientY - state.startY) > 2) {
+        state.moved = true;
+      }
+      setNodePositions((prev) => ({ ...prev, [state.nodeId]: { x: nx, y: ny } }));
+    } else if (state.type === 'pan') {
+      const svg = svgRef.current;
+      if (!svg) return;
+      const rect = svg.getBoundingClientRect();
+      const scaleX = MINI_GRAPH_WIDTH / rect.width;
+      const scaleY = MINI_GRAPH_HEIGHT / rect.height;
+      setPan({
+        x: state.panStart.x + (event.clientX - state.startX) * scaleX,
+        y: state.panStart.y + (event.clientY - state.startY) * scaleY,
+      });
+    }
+  }
+
+  function handlePointerUp(event, nodeId) {
+    const state = dragState.current;
+    dragState.current = null;
+    if (state?.type === 'node' && !state.moved && nodeId) {
+      onOpenPaper(nodeId);
+    }
+  }
 
   function handleNodeKeyDown(event, nodeId) {
     if (event.key === 'Enter' || event.key === ' ') {
@@ -331,6 +420,15 @@ function MiniGraphPreview({ paper, papers, onOpenPaper, onOpenGraph }) {
       event.stopPropagation();
       onOpenPaper(nodeId);
     }
+  }
+
+  function recenter() {
+    setPan({ x: 0, y: 0 });
+    const reset = {};
+    for (const node of graphData.nodes) {
+      reset[node.id] = { x: node.x, y: node.y };
+    }
+    setNodePositions(reset);
   }
 
   return (
@@ -344,82 +442,97 @@ function MiniGraphPreview({ paper, papers, onOpenPaper, onOpenGraph }) {
               : 'No papers in the graph yet'}
           </p>
         </div>
-        <button
-          className="secondary-button mini-graph-open-button"
-          type="button"
-          onClick={onOpenGraph}
-        >
-          Open graph
-        </button>
+        <div style={{ display: 'flex', gap: '6px' }}>
+          <button
+            className="secondary-button mini-graph-open-button"
+            type="button"
+            onClick={recenter}
+          >
+            Recenter
+          </button>
+          <button
+            className="secondary-button mini-graph-open-button"
+            type="button"
+            onClick={onOpenGraph}
+          >
+            Open graph
+          </button>
+        </div>
       </div>
 
       <div className="mini-graph-shell" aria-label="Miniature paper graph preview">
         <svg
+          ref={svgRef}
           className="mini-graph-svg"
           viewBox={`0 0 ${MINI_GRAPH_WIDTH} ${MINI_GRAPH_HEIGHT}`}
-          aria-hidden="true"
+          onPointerDown={handleBackgroundPointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={() => handlePointerUp()}
+          onPointerCancel={() => handlePointerUp()}
+          style={{ cursor: dragState.current?.type === 'pan' ? 'grabbing' : 'grab', touchAction: 'none' }}
         >
-          {graphData.edges.map((edge) => {
-            const fromNode = nodeMap.get(edge.from);
-            const toNode = nodeMap.get(edge.to);
-            if (!fromNode || !toNode) {
-              return null;
-            }
+          <g transform={`translate(${pan.x}, ${pan.y})`}>
+            {graphData.edges.map((edge) => {
+              const fromNode = nodeMap.get(edge.from);
+              const toNode = nodeMap.get(edge.to);
+              if (!fromNode || !toNode) return null;
+              const fromPos = getPos(fromNode);
+              const toPos = getPos(toNode);
+              return (
+                <line
+                  key={edge.id}
+                  x1={fromPos.x}
+                  y1={fromPos.y}
+                  x2={toPos.x}
+                  y2={toPos.y}
+                  className="mini-graph-edge"
+                />
+              );
+            })}
 
-            return (
-              <line
-                key={edge.id}
-                x1={fromNode.x}
-                y1={fromNode.y}
-                x2={toNode.x}
-                y2={toNode.y}
-                className="mini-graph-edge"
-              />
-            );
-          })}
-
-          {graphData.nodes.map((node) => (
-            <g
-              key={node.id}
-              className={node.isCurrent ? 'mini-graph-node is-current' : 'mini-graph-node'}
-              role="button"
-              tabIndex={0}
-              onMouseDown={(event) => {
-                event.preventDefault();
-              }}
-              onClick={(event) => {
-                event.stopPropagation();
-                onOpenPaper(node.id);
-              }}
-              onKeyDown={(event) => handleNodeKeyDown(event, node.id)}
-            >
-              <title>{node.isCurrent ? `${node.title} (current paper)` : node.title}</title>
-              <circle cx={node.x} cy={node.y + 11} r={24} className="mini-graph-hit-area" />
-              <circle cx={node.x} cy={node.y} r={MINI_NODE_RADIUS} className="mini-graph-node-dot" />
-              <text
-                x={node.x}
-                y={node.y + 1}
-                textAnchor="middle"
-                dominantBaseline="middle"
-                className="mini-graph-node-year"
-              >
-                '{String(node.year || 2024).slice(-2)}
-              </text>
-              <text
-                x={node.x}
-                y={node.y + 24}
-                textAnchor="middle"
-                className="mini-graph-node-label"
-              >
-                {truncateMiniGraphTitle(node.title)}
-              </text>
-            </g>
-          ))}
+            {graphData.nodes.map((node) => {
+              const pos = getPos(node);
+              return (
+                <g
+                  key={node.id}
+                  data-node-id={node.id}
+                  className={node.isCurrent ? 'mini-graph-node is-current' : 'mini-graph-node'}
+                  role="button"
+                  tabIndex={0}
+                  onPointerDown={(event) => handlePointerDown(event, node.id)}
+                  onPointerUp={(event) => handlePointerUp(event, node.id)}
+                  onKeyDown={(event) => handleNodeKeyDown(event, node.id)}
+                  style={{ cursor: 'grab' }}
+                >
+                  <title>{node.isCurrent ? `${node.title} (current paper)` : node.title}</title>
+                  <circle cx={pos.x} cy={pos.y + 11} r={24} className="mini-graph-hit-area" />
+                  <circle cx={pos.x} cy={pos.y} r={MINI_NODE_RADIUS} className="mini-graph-node-dot" />
+                  <text
+                    x={pos.x}
+                    y={pos.y + 1}
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    className="mini-graph-node-year"
+                  >
+                    '{String(node.year || 2024).slice(-2)}
+                  </text>
+                  <text
+                    x={pos.x}
+                    y={pos.y + 24}
+                    textAnchor="middle"
+                    className="mini-graph-node-label"
+                  >
+                    {truncateMiniGraphTitle(node.title)}
+                  </text>
+                </g>
+              );
+            })}
+          </g>
         </svg>
       </div>
 
       <p className="mini-graph-summary">
-        This is a mini version of the full graph. Click a node to open that paper.
+        Drag the background to pan, drag nodes to reposition, click a node to open that paper.
       </p>
     </article>
   );
