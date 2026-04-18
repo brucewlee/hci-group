@@ -1,6 +1,19 @@
 export function PaperCard({ paper, onOpen, onDelete }) {
+  const handleCardKeyDown = (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      onOpen();
+    }
+  };
+
   return (
-    <div className="card paper-card">
+    <div
+      className="card paper-card"
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={handleCardKeyDown}
+    >
       <div className="paper-card-title">{paper.title || 'Untitled Paper'}</div>
       <div className="paper-card-meta">
         {paper.authors && <span>{paper.authors}</span>}
@@ -20,10 +33,22 @@ export function PaperCard({ paper, onOpen, onDelete }) {
         </div>
       )}
       <div className="paper-card-actions">
-        <button className="btn btn-primary btn-small" onClick={onOpen}>
+        <button
+          className="btn btn-primary btn-small"
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpen();
+          }}
+        >
           Open
         </button>
-        <button className="btn btn-danger btn-small" onClick={onDelete}>
+        <button
+          className="btn btn-danger btn-small"
+          onClick={(event) => {
+            event.stopPropagation();
+            onDelete();
+          }}
+        >
           Delete
         </button>
       </div>

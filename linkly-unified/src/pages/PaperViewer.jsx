@@ -53,6 +53,7 @@ const DEFAULT_ANNOTATION_WIDTH = 140;
 const DEFAULT_ANNOTATION_HEIGHT = 72;
 const CALLOUT_HEIGHT = 0.13;
 const CALLOUT_GAP = 0.018;
+const LAST_VIEWED_PAPER_CONTEXT_KEY = 'linkly:last-viewed-paper-context';
 
 function createId() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -565,7 +566,7 @@ export function PaperViewer({ paper, papers = [], updatePaper, availableTags = [
   const location = useLocation();
   const navigate = useNavigate();
   const { paperId } = useParams();
-  const [activeTab, setActiveTab] = useState('glossary');
+  const [activeTab, setActiveTab] = useState('graph');
   const [numPages, setNumPages] = useState(0);
   const [pdfError, setPdfError] = useState('');
   const [zoom, setZoom] = useState(1.15);
@@ -609,8 +610,22 @@ export function PaperViewer({ paper, papers = [], updatePaper, availableTags = [
     setEditingAnnotationId(null);
     setEditingAnnotationComment('');
     setSidebarCollapsed(false);
-    setActiveTab(location.state?.activeTab || 'glossary');
+    setActiveTab(location.state?.activeTab || 'graph');
   }, [location.state, paper?.id]);
+
+  useEffect(() => {
+    if (!paper?.id) {
+      return;
+    }
+
+    window.localStorage.setItem(
+      LAST_VIEWED_PAPER_CONTEXT_KEY,
+      JSON.stringify({
+        paperId: paper.id,
+        activeTab,
+      }),
+    );
+  }, [activeTab, paper?.id]);
 
   useEffect(() => {
     if (paper && updatePaper) {
