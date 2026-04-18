@@ -176,20 +176,43 @@ function runMiniGraphLayout(papers, iterations = 150) {
     return [];
   }
 
+  const hasAnyStored = papers.some(
+    (p) => Number.isFinite(p?.graphPosition?.x) && Number.isFinite(p?.graphPosition?.y),
+  );
+
   const nodes = papers.map((entry, index) => {
-    const hash = hashString(entry.id || `${entry.title || 'paper'}-${index}`);
-    const angle = (hash % 360) * (Math.PI / 180);
-    const radius = 120 + (hash % 120);
+    const stored =
+      Number.isFinite(entry?.graphPosition?.x) && Number.isFinite(entry?.graphPosition?.y)
+        ? { x: entry.graphPosition.x, y: entry.graphPosition.y }
+        : null;
+
+    let x;
+    let y;
+    if (stored) {
+      x = stored.x;
+      y = stored.y;
+    } else {
+      const hash = hashString(entry.id || `${entry.title || 'paper'}-${index}`);
+      const angle = (hash % 360) * (Math.PI / 180);
+      const radius = 120 + (hash % 120);
+      x = MINI_LAYOUT_WIDTH / 2 + Math.cos(angle) * radius;
+      y = MINI_LAYOUT_HEIGHT / 2 + Math.sin(angle) * (radius * 0.62);
+    }
 
     return {
       ...entry,
       buildsOn: entry.buildsOn || [],
-      x: MINI_LAYOUT_WIDTH / 2 + Math.cos(angle) * radius,
-      y: MINI_LAYOUT_HEIGHT / 2 + Math.sin(angle) * (radius * 0.62),
+      x,
+      y,
       vx: 0,
       vy: 0,
+      _hasStoredPosition: Boolean(stored),
     };
   });
+
+  if (hasAnyStored && nodes.every((n) => n._hasStoredPosition)) {
+    return nodes;
+  }
 
   const nodeMap = Object.fromEntries(nodes.map((node) => [node.id, node]));
 
