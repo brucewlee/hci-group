@@ -3,12 +3,20 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons';
 
-const LAST_VIEWED_PAPER_CONTEXT_KEY = 'linkly:last-viewed-paper-context';
-
-export function GlobalNav() {
+export function GlobalNav({ onResetLibrary, paperCount = 0 }) {
   const [searchQuery, setSearchQuery] = useState('');
   const navigate = useNavigate();
   const location = useLocation();
+
+  const handleReset = () => {
+    if (!onResetLibrary) return;
+    const ok = window.confirm(
+      `Reset library? This will permanently delete all ${paperCount} paper${paperCount === 1 ? '' : 's'}, their PDFs, annotations, tags, and graph edges. This cannot be undone.`
+    );
+    if (!ok) return;
+    onResetLibrary();
+    navigate('/');
+  };
 
   const handleSearch = (e) => {
     e.preventDefault();
@@ -20,47 +28,26 @@ export function GlobalNav() {
 
   const isActive = (path) => location.pathname === path ? 'active' : '';
 
-  const handleLibraryClick = (event) => {
-    if (location.pathname === '/library') {
-      return;
-    }
-
-    let lastViewedPaperContext = null;
-
-    try {
-      lastViewedPaperContext = JSON.parse(
-        window.localStorage.getItem(LAST_VIEWED_PAPER_CONTEXT_KEY) || 'null',
-      );
-    } catch {
-      lastViewedPaperContext = null;
-    }
-
-    if (!lastViewedPaperContext?.paperId) {
-      return;
-    }
-
+  /* clicking a nav tab always routes to that section's home, even if already there */
+  const navigateTo = (path) => (event) => {
     event.preventDefault();
-    navigate(`/paper/${lastViewedPaperContext.paperId}`, {
-      state: {
-        activeTab: lastViewedPaperContext.activeTab || 'graph',
-      },
-    });
+    navigate(path);
   };
 
   return (
     <nav className="global-nav">
-      <Link to="/" className="nav-logo">Linkly</Link>
-      
+      <Link to="/" className="nav-logo" onClick={navigateTo('/')}>Linkly</Link>
+
       <div className="nav-links">
-        <Link to="/" className={`nav-link ${isActive('/')}`}>Dashboard</Link>
+        <Link to="/" className={`nav-link ${isActive('/')}`} onClick={navigateTo('/')}>Dashboard</Link>
         <Link
           to="/library"
           className={`nav-link ${isActive('/library')}`}
-          onClick={handleLibraryClick}
+          onClick={navigateTo('/library')}
         >
           Library
         </Link>
-        <Link to="/graph" className={`nav-link ${isActive('/graph')}`}>Graph</Link>
+        <Link to="/graph" className={`nav-link ${isActive('/graph')}`} onClick={navigateTo('/graph')}>Graph</Link>
       </div>
 
       <form className="nav-search" onSubmit={handleSearch}>
@@ -76,6 +63,17 @@ export function GlobalNav() {
       <Link to="/upload" className="btn btn-primary btn-small">
         + Upload Paper
       </Link>
+      {onResetLibrary && paperCount > 0 && (
+        <button
+          type="button"
+          className="btn btn-danger btn-small"
+          onClick={handleReset}
+          style={{ marginLeft: 8 }}
+          title="Delete all papers and start fresh"
+        >
+          Reset
+        </button>
+      )}
     </nav>
   );
 }

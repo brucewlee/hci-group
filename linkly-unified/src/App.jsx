@@ -9,17 +9,17 @@ import { SearchResults } from './pages/SearchResults.jsx';
 import { usePaperStore } from './hooks/usePaperStore.js';
 
 function App() {
-  const { papers, setPapers, addPaper, updatePaper, deletePaper } = usePaperStore();
+  const { papers, setPapers, addPaper, updatePaper, deletePaper, clearAllPapers } = usePaperStore();
 
   return (
     <Router>
       <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-        <GlobalNav />
+        <GlobalNav onResetLibrary={clearAllPapers} paperCount={papers.length} />
         <main className="main-content">
           <Routes>
             <Route path="/" element={<Landing papers={papers} />} />
             <Route path="/library" element={<Library papers={papers} deletePaper={deletePaper} />} />
-            <Route path="/upload" element={<Upload addPaper={addPaper} />} />
+            <Route path="/upload" element={<Upload addPaper={addPaper} updatePaper={updatePaper} papers={papers} />} />
             <Route path="/paper/:paperId" element={<PaperViewerPage papers={papers} updatePaper={updatePaper} />} />
             <Route path="/graph" element={<GraphView papers={papers} setPapers={setPapers} tags={Array.from(new Set(papers.flatMap(p => p.tags || [])))} />} />
             <Route path="/search" element={<SearchResults papers={papers} />} />

@@ -52,6 +52,7 @@ function addArxivPdfMiddleware(server) {
 }
 
 export default defineConfig({
+  envDir: '..',
   plugins: [
     react(),
     {

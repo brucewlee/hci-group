@@ -529,16 +529,30 @@ export function GraphView({ papers, setPapers, tags = [] }) {
           (n) => n.id !== edgeDragFrom && Math.sqrt((n.x - mx) ** 2 + (n.y - my) ** 2) < 28,
         );
         if (target) {
-          const from = edgeDragFrom,
-            to = target.id;
-          setPapers((prev) =>
-            prev.map((p) => {
+          let from = edgeDragFrom;
+          let to = target.id;
+          /* Enforce temporal ordering: a paper can only build on same-year or earlier papers.
+             If the user drags from an older node onto a newer one, swap so the newer paper
+             is the one that "builds on" the older one. */
+          setPapers((prev) => {
+            const fromPaper = prev.find((p) => p.id === from);
+            const toPaper = prev.find((p) => p.id === to);
+            const fromYear = Number(fromPaper?.year);
+            const toYear = Number(toPaper?.year);
+            if (
+              Number.isFinite(fromYear) &&
+              Number.isFinite(toYear) &&
+              fromYear < toYear
+            ) {
+              [from, to] = [to, from];
+            }
+            return prev.map((p) => {
               if (p.id === from && !p.buildsOn.includes(to)) {
                 return { ...p, buildsOn: [...p.buildsOn, to] };
               }
               return p;
-            }),
-          );
+            });
+          });
         }
       }
       if (dragId) {
@@ -909,15 +923,17 @@ export function GraphView({ papers, setPapers, tags = [] }) {
                     const dim =
                       (hovered && !hl) ||
                       (hoveredTag && !tagMatch && !hl);
-                    const dx = parent.x - child.x,
-                      dy = parent.y - child.y;
+                    /* Arrow points from predecessor (parent) → successor (child), so the
+                       visual flow matches how ideas build forward in time. */
+                    const dx = child.x - parent.x,
+                      dy = child.y - parent.y;
                     const d = Math.sqrt(dx * dx + dy * dy) || 1;
                     const ux = dx / d,
                       uy = dy / d;
-                    const x1 = child.x + ux * 20,
-                      y1 = child.y + uy * 20,
-                      x2 = parent.x - ux * 20,
-                      y2 = parent.y - uy * 20;
+                    const x1 = parent.x + ux * 20,
+                      y1 = parent.y + uy * 20,
+                      x2 = child.x - ux * 20,
+                      y2 = child.y - uy * 20;
                     return (
                       <EdgeGroup
                         key={`${p.id}-${pid}`}

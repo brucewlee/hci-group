@@ -70,3 +70,11 @@ export function deletePaperFile(paperId) {
     request.onsuccess = () => resolve();
   });
 }
+
+export function clearAllPaperFiles() {
+  return withStore('readwrite', (store, resolve, reject) => {
+    const request = store.clear();
+    request.onerror = () => reject(request.error || new Error('Failed to clear paper files.'));
+    request.onsuccess = () => resolve();
+  });
+}

@@ -1,5 +1,10 @@
 import { useState, useCallback, useEffect } from 'react';
-import { deletePaperFile, loadPaperFiles, savePaperFile } from '../utils/paperFiles.js';
+import {
+  clearAllPaperFiles,
+  deletePaperFile,
+  loadPaperFiles,
+  savePaperFile,
+} from '../utils/paperFiles.js';
 
 const PAPERS_KEY = 'linkly:papers';
 
@@ -106,6 +111,27 @@ export function usePaperStore() {
     [papers]
   );
 
+  const clearAllPapers = useCallback(() => {
+    setPapers([]);
+    try {
+      /* Clear every linkly:* localStorage key so no cached tag suggestions,
+         arXiv metadata, viewer-state, or other derived data outlive the reset. */
+      const keysToRemove = [];
+      for (let i = 0; i < window.localStorage.length; i += 1) {
+        const key = window.localStorage.key(i);
+        if (key && key.startsWith('linkly:')) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach((key) => window.localStorage.removeItem(key));
+    } catch (err) {
+      console.error('Failed to clear linkly localStorage keys:', err);
+    }
+    clearAllPaperFiles().catch((error) => {
+      console.error('Failed to clear stored paper files:', error);
+    });
+  }, []);
+
   return {
     papers,
     setPapers,
@@ -113,5 +139,6 @@ export function usePaperStore() {
     updatePaper,
     deletePaper,
     getPaper,
+    clearAllPapers,
   };
 }
