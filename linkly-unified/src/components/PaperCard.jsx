@@ -22,6 +22,12 @@ export function PaperCard({ paper, onOpen, onDelete }) {
       {paper.abstract && (
         <div className="paper-card-abstract">{paper.abstract}</div>
       )}
+      {paper.note && (
+        <div className="paper-card-note">
+          <span className="paper-card-note-label">Notes</span>
+          {paper.note}
+        </div>
+      )}
       {paper.tags && paper.tags.length > 0 && (
         <div style={{ marginBottom: '12px' }}>
           {paper.tags.slice(0, 3).map((tag) => (

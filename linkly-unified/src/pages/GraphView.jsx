@@ -529,30 +529,16 @@ export function GraphView({ papers, setPapers, tags = [] }) {
           (n) => n.id !== edgeDragFrom && Math.sqrt((n.x - mx) ** 2 + (n.y - my) ** 2) < 28,
         );
         if (target) {
-          let from = edgeDragFrom;
-          let to = target.id;
-          /* Enforce temporal ordering: a paper can only build on same-year or earlier papers.
-             If the user drags from an older node onto a newer one, swap so the newer paper
-             is the one that "builds on" the older one. */
-          setPapers((prev) => {
-            const fromPaper = prev.find((p) => p.id === from);
-            const toPaper = prev.find((p) => p.id === to);
-            const fromYear = Number(fromPaper?.year);
-            const toYear = Number(toPaper?.year);
-            if (
-              Number.isFinite(fromYear) &&
-              Number.isFinite(toYear) &&
-              fromYear < toYear
-            ) {
-              [from, to] = [to, from];
-            }
-            return prev.map((p) => {
+          const from = target.id;
+          const to = edgeDragFrom;
+          setPapers((prev) =>
+            prev.map((p) => {
               if (p.id === from && !p.buildsOn.includes(to)) {
                 return { ...p, buildsOn: [...p.buildsOn, to] };
               }
               return p;
-            });
-          });
+            })
+          );
         }
       }
       if (dragId) {

@@ -79,6 +79,28 @@ export function useSearch(papers, query) {
           });
         }
       }
+
+      // Search annotations
+      for (const annotation of paper.annotations || []) {
+        if (!annotation.comment?.trim()) continue;
+        let annotationScore = 0;
+        const annotationTokens = tokenize(annotation.comment);
+
+        for (const token of tokens) {
+          annotationScore += annotationTokens.filter((t) => t.startsWith(token)).length;
+        }
+
+        if (annotationScore > 0) {
+          results.push({
+            type: 'annotation',
+            paperId: paper.id,
+            paperTitle: paper.title,
+            comment: annotation.comment.slice(0, 150),
+            pageNumber: annotation.pageNumber,
+            score: annotationScore,
+          });
+        }
+      }
     }
 
     return results.sort((a, b) => b.score - a.score);

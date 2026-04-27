@@ -587,6 +587,7 @@ export function PaperViewer({ paper, papers = [], updatePaper, availableTags = [
   const [expandedGlossaryId, setExpandedGlossaryId] = useState(null);
   const [editingAnnotationId, setEditingAnnotationId] = useState(null);
   const [editingAnnotationComment, setEditingAnnotationComment] = useState('');
+  const [noteDraft, setNoteDraft] = useState(paper?.note || '');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const viewerRef = useRef(null);
@@ -609,6 +610,7 @@ export function PaperViewer({ paper, papers = [], updatePaper, availableTags = [
     setExpandedGlossaryId(null);
     setEditingAnnotationId(null);
     setEditingAnnotationComment('');
+    setNoteDraft(paper?.note || '');
     setSidebarCollapsed(false);
     setActiveTab(location.state?.activeTab || 'graph');
   }, [location.state, paper?.id]);
@@ -629,9 +631,9 @@ export function PaperViewer({ paper, papers = [], updatePaper, availableTags = [
 
   useEffect(() => {
     if (paper && updatePaper) {
-      updatePaper(paperId, { tags: paperTags, glossary: glossaryEntries, annotations });
+      updatePaper(paperId, { tags: paperTags, glossary: glossaryEntries, annotations, note: noteDraft });
     }
-  }, [annotations, glossaryEntries, paper, paperId, paperTags, updatePaper]);
+  }, [annotations, glossaryEntries, noteDraft, paper, paperId, paperTags, updatePaper]);
 
   useEffect(() => {
     return () => {
@@ -667,6 +669,11 @@ export function PaperViewer({ paper, papers = [], updatePaper, availableTags = [
   }
 
   function openSidebarTab(tab) {
+    if (tab !== 'annotations') {
+      setAnnotationMode(false);
+      setPendingAnnotation(null);
+      setCommentDraft('');
+    }
     setSidebarCollapsed(false);
     setActiveTab(tab);
   }
@@ -682,6 +689,7 @@ export function PaperViewer({ paper, papers = [], updatePaper, availableTags = [
 
   function scheduleSelectionCapture() {
     if (annotationMode) return;
+    if (activeTab !== 'glossary') return;
 
     if (selectionTimeoutRef.current) {
       window.clearTimeout(selectionTimeoutRef.current);
@@ -1193,30 +1201,37 @@ export function PaperViewer({ paper, papers = [], updatePaper, availableTags = [
                 <button
                   className={getTabButtonClass(activeTab === 'tags')}
                   type="button"
-                  onClick={() => setActiveTab('tags')}
+                  onClick={() => openSidebarTab('tags')}
                 >
                   Tags
                 </button>
                 <button
                   className={getTabButtonClass(activeTab === 'graph')}
                   type="button"
-                  onClick={() => setActiveTab('graph')}
+                  onClick={() => openSidebarTab('graph')}
                 >
                   Graph
                 </button>
                 <button
                   className={getTabButtonClass(activeTab === 'glossary')}
                   type="button"
-                  onClick={() => setActiveTab('glossary')}
+                  onClick={() => openSidebarTab('glossary')}
                 >
                   Glossary
                 </button>
                 <button
                   className={getTabButtonClass(activeTab === 'annotations')}
                   type="button"
-                  onClick={() => setActiveTab('annotations')}
+                  onClick={() => openSidebarTab('annotations')}
                 >
                   Annotations
+                </button>
+                <button
+                  className={getTabButtonClass(activeTab === 'notes')}
+                  type="button"
+                  onClick={() => openSidebarTab('notes')}
+                >
+                  Notes
                 </button>
               </div>
 
@@ -1420,6 +1435,22 @@ export function PaperViewer({ paper, papers = [], updatePaper, availableTags = [
                       ) : (
                         <p className="empty-state">No glossary items yet.</p>
                       )}
+                    </article>
+                  </div>
+                ) : null}
+
+                {activeTab === 'notes' ? (
+                  <div className="notes-tab-layout">
+                    <article className="reader-card notes-card">
+                      <h3>Notes</h3>
+                      <p className="reader-subtitle">Your notes about this paper. Changes save automatically.</p>
+                      <textarea
+                        className="text-input notes-textarea"
+                        rows="12"
+                        value={noteDraft}
+                        onChange={(event) => setNoteDraft(event.target.value)}
+                        placeholder="Add your notes about this paper..."
+                      />
                     </article>
                   </div>
                 ) : null}

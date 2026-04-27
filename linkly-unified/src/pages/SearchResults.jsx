@@ -56,6 +56,18 @@ export function SearchResults({ papers }) {
                   </div>
                 </Link>
               )}
+
+              {result.type === 'annotation' && (
+                <Link to={`/paper/${result.paperId}`} state={{ activeTab: 'annotations' }} style={{ textDecoration: 'none', color: 'inherit' }}>
+                  <div style={{ cursor: 'pointer' }}>
+                    <div className="paper-card-title">Annotation: {result.paperTitle}</div>
+                    <div className="paper-card-meta">Page {result.pageNumber}</div>
+                    <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', margin: '8px 0' }}>
+                      {result.comment}...
+                    </p>
+                  </div>
+                </Link>
+              )}
             </div>
           ))}
         </div>

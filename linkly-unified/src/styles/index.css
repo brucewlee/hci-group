@@ -162,6 +162,28 @@ html, body {
   text-overflow: ellipsis;
 }
 
+.paper-card-note {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+  margin-bottom: 12px;
+  max-height: 60px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-style: italic;
+}
+
+.paper-card-note-label {
+  display: inline-block;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-primary);
+  margin-right: 6px;
+}
+
 .paper-card-actions {
   display: flex;
   gap: 8px;
@@ -477,9 +499,11 @@ html, body {
 }
 
 .sidebar-tabs {
-  display: grid;
-  grid-template-columns: auto repeat(4, 1fr);
+  display: flex;
+  flex-wrap: nowrap;
   gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
   position: sticky;
   top: 0;
   z-index: 4;
@@ -488,8 +512,12 @@ html, body {
   backdrop-filter: blur(12px);
 }
 
+.sidebar-tabs::-webkit-scrollbar {
+  display: none;
+}
+
 .sidebar-tabs .simple-tab {
-  width: 100%;
+  flex-shrink: 0;
   justify-content: center;
 }
 
@@ -1141,6 +1169,23 @@ html, body {
   gap: 10px;
 }
 
+.notes-tab-layout {
+  display: grid;
+  gap: 10px;
+}
+
+.notes-card {
+  display: grid;
+  gap: 10px;
+}
+
+.notes-textarea {
+  resize: vertical;
+  min-height: 180px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 @media (max-width: 900px) {
   .pdf-workbench,
   .pdf-workbench.sidebar-collapsed {
@@ -1153,7 +1198,7 @@ html, body {
   }
 
   .sidebar-tabs {
-    grid-template-columns: auto repeat(4, 1fr);
+    flex-wrap: nowrap;
   }
 
   .glossary-definitions-card {
