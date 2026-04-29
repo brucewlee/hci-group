@@ -19,6 +19,15 @@ cd linkly-unified
 npm install
 ```
 
+### Add your API key
+Create a .env file in the root directory of the repo.
+
+Then edit `.env` and paste your OpenRouter key:
+```
+VITE_OPENROUTER_KEY=sk-or-v1-your-actual-key
+```
+Get a key at [openrouter.ai/keys](https://openrouter.ai/keys). The app uses `anthropic/claude-sonnet-4.6` through OpenRouter.
+
 ### Development
 
 ```bash
