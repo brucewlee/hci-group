@@ -129,3 +129,33 @@ The app uses a unified CSS system with:
 - Paper import from Bibtex
 - Collaborative features
 - Backend sync
+
+## AI Attribution
+
+All code in this repository was generated with assistance from AI.
+
+Produced through iterative conversation with Claude Opus:
+- Force-directed graph layout algorithm
+- SVG rendering with hover/drag interactions
+- Edge creation via connector handles
+- Claude API integration for tag suggestion
+- ArXiv metadata auto-fetch via Semantic Scholar API
+
+Produced through iterative conversation with Claude Sonnet:
+- localStorage read/write with seed-on-first-load pattern
+- Tokenized inverted index search engine
+- Prefix matching and multi-token AND queries
+- Result highlighting and score-ranked output
+
+Produced through iterative conversation with Codex:
+
+- React multi-screen prototype with Hello World opening screen
+- Style-guide screen with required colors, Lato font weights, and FontAwesome icons
+- Native multi-page PDF rendering with react-pdf
+- Text selection capture from rendered PDF into glossary entries
+- Session-based glossary persistence with sessionStorage
+- Drag-to-annotate PDF interactions with saved comments
+- Persistent annotation storage with localStorage
+- Margin annotation callouts connected to annotated PDF regions
+
+After the implementation prototype stage, we integrated the standalone apps through iterative conversation with Claude Sonnet.
